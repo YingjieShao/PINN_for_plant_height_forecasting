@@ -1,0 +1,5 @@
+,learning_rate,hidden_size,l2,num_layer,physics_weight,y_max_bound,smooth_loss,genetics_embedding_size,last_fc_hidden_size,epochs,n_split,random_sees,trainable_parameters,train_rMSE,validation_rMSE,test_rMSE,train_shapeDTW,validation_shapeDTW,test_shapeDTW,validation_rMSE_std,train_rMSE_std,test_rMSE_std,train_shapeDTW_std,validation_shapeDTW_std,test_shapeDTW_std
+3,0.001,5,1.0,1,2,True,False,5,5,2408.0,0.0,3.0,463.0,0.034,0.07,0.061,0.103,0.131,0.088,0.009,0.002,0.011,0.001,0.004,0.008
+1,0.001,5,1.0,1,2,True,False,3,5,2002.0,0.0,3.0,409.0,0.04,0.071,0.063,0.117,0.149,0.101,0.009,0.004,0.012,0.007,0.01,0.009
+0,0.001,5,1.0,1,2,True,False,3,3,2196.0,0.0,3.0,393.0,0.036,0.076,0.061,0.11,0.142,0.096,0.007,0.003,0.012,0.007,0.005,0.006
+2,0.001,5,1.0,1,2,True,False,5,3,1938.0,0.0,3.0,443.0,0.037,0.077,0.055,0.112,0.142,0.095,0.018,0.004,0.011,0.01,0.008,0.012

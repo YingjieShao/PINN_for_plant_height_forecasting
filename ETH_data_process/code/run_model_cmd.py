@@ -95,7 +95,7 @@ def read_cmd_input():
         index_mode = cmd_line.index("-seed") + 1
         seed = int(cmd_line[index_mode])
     except:
-        print('did not receive -seed input, set as None, will loop through all random seed coded in Single_genotype_NN_PINN.py later.')
+        print('did not receive -seed input, set as None, will loop through all random seed coded in ODE_neural.py later.')
         seed = None
     try:
         index_mode = cmd_line.index("-weight") + 1
@@ -103,7 +103,7 @@ def read_cmd_input():
         print('weight: {}'.format(weight))
 
     except:
-        print('did not receive -weight input, set as None, will loop through all weights coded in Single_genotype_NN_PINN.py later.')
+        print('did not receive -weight input, set as None, will loop through all weights coded in ODE_neural.py later.')
         weight = None
 
     try:
@@ -151,8 +151,8 @@ def read_cmd_input():
     return mode, if_pinn, start_day, parameter_boundary, penalize_y, smooth, fill_in_na_at_start, same_length,rescale, genotype,seed,weight,genetics_embed,genetics_encode
 
 def main():
-    from Single_genotype_NN_PINN import run_logistic_ode_pinn
-    from visualize_data_and_genotypes_filtering import find_genotype_present_at_multiple_years
+    from ODE_neural import run_logistic_ode_pinn
+    from visualize_data import find_genotype_present_at_multiple_years
     print("""
         This script is to run PINN
         usage: python3 run_model_cmd.py -mode <str, corresponding to mode parameters in function run_logistic_ode_pinn> 

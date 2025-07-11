@@ -12,8 +12,9 @@ import torch.optim as optim
 
 import wandb
 import copy
-from Tensor_prepare import reverse_min_max_scaling,train_test_split_based_on_group, count_parameters
-from Single_genotype_NN_PINN import average_based_on_group_df,mask_dtw_loss,mask_rmse_loss,smooth_tensor_ignore_nan
+from models import reverse_min_max_scaling,train_test_split_based_on_group, count_parameters
+from ODE_neural import average_based_on_group_df,mask_dtw_loss,mask_rmse_loss,smooth_tensor_ignore_nan
+from g_e_height import smoothing_spline
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestRegressor
@@ -227,13 +228,14 @@ def fit_temperature_ode_with_spicy():
 
     def mask_rmse(y_pred, y_true):
         mask = (y_true != 0.0).astype(float)
-        loss = np.sqrt(np.sum(((y_true - y_pred) * mask) ** 2) / np.count_nonzero(mask))
+        loss = (np.sum(((y_true - y_pred) * mask) ** 2) / np.count_nonzero(mask))**0.5
         # print('loss :{}'.format(loss))
         return loss
     def residual(theta, t, temperature, y_true, y0):
         mask = (y_true != 0.0).astype(float)
         y_pred_list=[]
         for seq in range(y_true.shape[1]):
+
             y_obs = y_true[:, seq]
             temperature_seq= temperature[:,seq]
             temperature_interp = interp1d(t, temperature_seq, fill_value='extrapolate',kind='nearest')
@@ -245,42 +247,47 @@ def fit_temperature_ode_with_spicy():
         return np.mean((pred_y-y_true)*mask,axis=0)
 
     def objective_function(theta, t, temperature, y_true, y0):
-        total_rmse = 0.0
+        total_sse = 0.0
         # print(temperature.shape)
         for seq in range(y_true.shape[1]):
+            # print(seq)
             y_obs = y_true[:, seq]
             temperature_seq= temperature[:,seq]
             temperature_interp = interp1d(t, temperature_seq, fill_value='extrapolate',kind='nearest')
 
             y_pred = solve_ode(y0, t, temperature_interp, theta)
 
-            total_rmse += mask_rmse(y_pred=y_pred, y_true=y_obs)
-        total_rmse = total_rmse/y_true.shape[1]
-        # print(total_rmse)
-        return total_rmse
+            total_sse += mask_rmse(y_pred=y_pred, y_true=y_obs)
+        total_sse = total_sse/y_true.shape[1]
+        # print(total_sse)
+        return total_sse
 
     def fit_ode_model_with_mask_rmse(true_y, temperature, t, y0):
 
         # base_initial_param = [0.1, 1.0, 2000, 292, 60000, 303]
-        base_initial_param = [0.1, 0.8,  292, 303]
+        base_initial_param = [0.0, 0.0,  292, 303]
         randomness = np.array([
-            np.random.normal(0, 0.05),  # For the first parameter (small variance)
-            np.random.normal(0, 0.1),  # For the second parameter (small variance)
+            np.random.uniform(0.1, 0.2),
+            np.random.uniform(0.7, 0.8),
+            # np.random.normal(0, 0.05),  # For the first parameter (small variance)
+            # np.random.normal(0, 0.1),  # For the second parameter (small variance)
             # np.random.normal(0, 20),  # For the third parameter (higher variance)
-            np.random.normal(0, 5),  # For temperature lower bound
+            np.random.normal(0, 10),  # For temperature lower bound
             # np.random.normal(0, 200),  # For tal (higher variance)
-            np.random.normal(0, 5)  # For temperature upper bound
+            np.random.normal(0, 10)  # For temperature upper bound
         ])
 
         # Create the new initial guess with randomness
         initial_param = np.array(base_initial_param) + randomness
+        print('inital parameter')
+        print(initial_param)
         # Set options for the optimizer
         options = {'maxiter': 3000, 'disp': True, 'adaptive': True}
-        result = minimize(objective_function, initial_param, args=(t, temperature, true_y, y0), method='Nelder-Mead',options=options)
+        result = minimize(objective_function, initial_param, args=(t, temperature, true_y, y0), method='Nelder-Mead',options=options)#
         print(result)
         # fit_parameter= result.x
         # result = least_squares(residual, fit_parameter, args=(t, temperature, true_y, y0), method='lm')
-        # # result = minimize(objective_function,fit_parameter, args=(t, temperature, true_y, y0),method='L-BFGS-B',options=options)
+        # result = minimize(objective_function,fit_parameter, args=(t, temperature, true_y, y0),method='L-BFGS-B',options=options)
         # print('after further optimize')
         # print(result)
         return result.x  # Fitted parameters
@@ -325,7 +332,7 @@ def fit_temperature_ode_with_spicy():
         validation_y_avg = torch.squeeze(validation_y_avg, dim=-1).numpy()
         test_y_avg = torch.squeeze(test_y_avg, dim=-1).numpy()
 
-        print(train_input_avg.shape,train_y_avg.shape)
+        # print(train_input_avg.shape,train_y_avg.shape)
 
         training_losses = []
         validation_losses = []
@@ -336,7 +343,8 @@ def fit_temperature_ode_with_spicy():
 
         for random_seed in range(5):
             np.random.seed(random_seed)
-
+            random.seed(random_seed)
+            print(random_seed)
             # Fit the model to the training data
             # print(train_y)
             params_fitted = fit_ode_model_with_mask_rmse(train_y.numpy(), train_env.numpy(), ts_train, y0=0.0001)
@@ -348,8 +356,8 @@ def fit_temperature_ode_with_spicy():
             shape_dtw_loss_test = 0.0
             #calculate rmse based on fitted parameters
             for seq in range(train_y_avg.shape[1]):
-                print(ts_train.shape)
-                print(train_input_avg[:,seq].shape)
+                # print(seq)
+                # print(train_input_avg[:,seq].shape)
 
                 train_env_interp = interp1d(ts_train, train_input_avg[:,seq], fill_value='extrapolate')
                 # plt.scatter(x=ts_train,y=train_input_avg[:,seq])
@@ -358,13 +366,16 @@ def fit_temperature_ode_with_spicy():
                 training_rmse += mask_rmse(y_pred=predict_train, y_true=train_y_avg[:,seq])
                 shape_dtw_loss_train += mask_dtw_loss(true_y=torch.tensor(train_y_avg[:,seq]).unsqueeze(dim=-1), predict_y=torch.tensor(predict_train).unsqueeze(dim=-1))
                 # print('shape_dtw_loss_train{}'.format(shape_dtw_loss_train))
+                print('train rmse')
+                print(training_rmse)
                 plt.plot(predict_train, color='r')
+            # raise EOFError
             train_y_avg[train_y_avg == 0.0] = np.nan
             plt.ylim(0, 1.5)
             sns.scatterplot(train_y_avg)
             plt.title('Genotype {} Train RMSE:{} shapeDTW {}'.format(genotype,round(training_rmse/train_y_avg.shape[1],3),round(shape_dtw_loss_train/train_y_avg.shape[1],3)))
             # plt.savefig('../figure/temperature_ODE/Genotype {} temperature_ODE_train_.png'.format(genotype))
-            plt.show()
+            # plt.show()
             plt.clf()
             train_y_avg = np.nan_to_num(train_y_avg, nan=0.0)
 
@@ -381,12 +392,13 @@ def fit_temperature_ode_with_spicy():
             plt.ylim(0, 1.5)
             plt.title('Genotype {} validation RMSE:{} shapeDTW {}'.format(genotype,round(validation_rmse/validation_y_avg.shape[1],3),round(shape_dtw_loss_val/validation_y_avg.shape[1],3)))
             # plt.savefig('../figure/temperature_ODE/Genotype {} temperature_ODE_validation_.png'.format(genotype))
-            plt.show()
+            # plt.show()
             plt.clf()
             validation_y_avg = np.nan_to_num(validation_y_avg, nan=0.0)
+            assert test_y_avg.shape[1] ==1
             for seq in range(test_y_avg.shape[1]):
                 test_env_interp = interp1d(ts_test, test_input_avg[:,seq], fill_value='extrapolate')
-                predict_test= solve_ode(0.0001, ts_test, test_env_interp, params_fitted)
+                predict_test = solve_ode(0.0001, ts_test, test_env_interp, params_fitted)
                 test_rmse += mask_rmse(y_pred=predict_test, y_true=test_y_avg[:,seq])
                 shape_dtw_loss_test += mask_dtw_loss(torch.tensor(test_y_avg[:,seq]).unsqueeze(dim=-1), torch.tensor(predict_test).unsqueeze(dim=-1))
                 # print('shape_dtw_loss_test{}'.format(shape_dtw_loss_test))
@@ -396,7 +408,7 @@ def fit_temperature_ode_with_spicy():
             plt.ylim(0,1.5)
             plt.title('Genotype {} Test RMSE:{} shapeDTW {}'.format(genotype,round(test_rmse/test_y_avg.shape[1],3),round(shape_dtw_loss_test/test_y_avg.shape[1],3)))
             # plt.savefig('../figure/temperature_ODE/Genotype {} temperature_ODE_test_.png'.format(genotype))
-            plt.show()
+            # plt.show()
             plt.clf()
             test_y_avg = np.nan_to_num(test_y_avg, nan=0.0)
 
@@ -449,16 +461,23 @@ def fit_temperature_ode_with_spicy():
             print(f"\nAverage Train RMSE: {avg_train_rmse}, Std: {std_train_rmse}")
             print(f"Average Validation RMSE: {avg_val_rmse}, Std: {std_val_rmse}")
             print(f"Average Test RMSE: {avg_test_rmse}, Std: {std_test_rmse}")
-            return avg_train_rmse,std_train_rmse,avg_val_rmse,std_val_rmse,avg_test_rmse,std_test_rmse,result_df
+            return (avg_train_rmse,std_train_rmse,avg_val_rmse,std_val_rmse,avg_test_rmse,std_test_rmse,\
+                    avg_train_dtw,dtw_std_train,avg_val_dtw,dtw_std_val,avg_test_dtw,dtw_std_test,result_df)
     def loop_through_g_fit_ode():
         average_train_errors, std_trains, average_val_errors, std_vals, average_test_errors, std_tests = [[] for _ in
                                                                                                        range(6)]
+        average_train_dtws, std_train_dtws, average_val_dtws, std_val_dtws, average_test_dtws, std_test_dtws = [[] for _
+                                                                                                                in
+                                                                                                                range(
+                                                                                                                    6)]
         result_df = pd.DataFrame()
         for g in [33, 106, 122, 133, 5, 30, 218, 2, 17, 254, 282, 294, 301, 302, 335, 339, 341, 6, 362]:
-            train_test_validation_dictionary, plant_height_tensor, temperature_same_length_tensor, genetics_input_tensor,group_df,group_df_replicates = read_tensor_files(
+            (train_test_validation_dictionary, plant_height_tensor, temperature_same_length_tensor,
+             genetics_input_tensor,group_df,group_df_replicates) = read_tensor_files(
                 g)
             print(g)
-            average_train_error, std_train, average_val_error, std_val, average_test_error, std_test,result_df = load_data_fit_temperature_ode(
+            (average_train_error, std_train, average_val_error, std_val, average_test_error, std_test,
+             avg_train_dtw,dtw_std_train,avg_val_dtw,dtw_std_val,avg_test_dtw,dtw_std_test,result_df) = load_data_fit_temperature_ode(
                 train_test_validation_dictionary, plant_height_tensor, temperature_same_length_tensor,result_df,g,group_df_replicates)
             average_train_errors.append(average_train_error)
             std_trains.append(std_train)
@@ -466,17 +485,33 @@ def fit_temperature_ode_with_spicy():
             std_vals.append(std_val)
             average_test_errors.append(average_test_error)
             std_tests.append(std_test)
+            average_train_dtws.append(avg_train_dtw)
+            std_train_dtws.append(dtw_std_train)
+            average_val_dtws.append(avg_val_dtw)
+            std_val_dtws.append(dtw_std_val)
+            average_test_dtws.append(avg_test_dtw)
+            std_test_dtws.append(dtw_std_test)
         else:
-            # result_df.to_csv('temperature_ode_fit_result_update.csv')
+            result_df.to_csv('temperature_ode_fit_result_new_april.csv')
             average_train_error = np.mean(average_train_errors)
             std_train = np.mean(std_trains)
             average_val_error = np.mean(average_val_errors)
             std_val = np.mean(std_vals)
             average_test_error = np.mean(average_test_errors)
             std_test = np.mean(std_tests)
-            print(f"\nAverage train RMSE across all folds: {average_train_error} std:{std_train}")
-            print(f"\nAverage Validation RMSE across all folds: {average_val_error} std:{std_val}")
-            print(f"\nAverage test RMSE across all folds: {average_test_error} std:{std_test}")
+            print(f"\nAverage train RMSE across all folds: {round(average_train_error,3)} std:{std_train}")
+            print(f"\nAverage Validation RMSE across all folds: {round(average_val_error,3)} std:{std_val}")
+            print(f"\nAverage test RMSE across all folds: {round(average_test_error,3)} std:{std_test}")
+
+            average_train_dtw = np.mean(average_train_dtws)
+            std_train_dtw = np.mean(std_train_dtws)
+            average_val_dtw = np.mean(average_val_dtws)
+            std_val_dtw = np.mean(std_val_dtws)
+            average_test_dtw = np.mean(average_test_dtws)
+            std_test_dtw = np.mean(std_test_dtws)
+            print(f"\nAverage train shapeDTW across all folds: {average_train_dtw} std:{std_train_dtw}")
+            print(f"\nAverage Validation shapeDTW across all folds: {average_val_dtw} std:{std_val_dtw}")
+            print(f"\nAverage test shapeDTW across all folds: {average_test_dtw} std:{std_test_dtw}")
     loop_through_g_fit_ode()
 
 
