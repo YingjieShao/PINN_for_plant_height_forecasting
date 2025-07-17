@@ -9,8 +9,6 @@ from prettytable import PrettyTable
 import torch.optim as optim
 
 
-from DataPrepare import multiple_years_yield, minmax_scaler, test_result,count_parameters,mean_yield_benchmark,onelayer_LSTM_yield_prediction
-import math
 class Autocorrelation_analysis():
     """
     analysis autocorrelation in innput x

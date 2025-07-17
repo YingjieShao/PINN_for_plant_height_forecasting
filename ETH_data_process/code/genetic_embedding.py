@@ -1,10 +1,13 @@
-import math
+"""
+This script is to create genetic encoding tensor for each genotype used in multiple-genotype models
+usage: python genetic_encoding_tensor.py
+"""
 import dill
-import matplotlib.pyplot as plt
+
 import pandas as pd
 import numpy as np
 import ast
-from visualize_data import find_genotype_present_at_multiple_years,genotype_present_in_specific_years,genotype_present_in_at_least_in_one_of_selected_years
+from raw_data_merge_visualize import find_genotype_present_at_multiple_years,genotype_present_in_specific_years,genotype_present_in_at_least_in_one_of_selected_years
 import blosum as bl
 from pard.grantham import grantham
 import re
@@ -15,11 +18,8 @@ from NNmodel_training import plot_loss_change
 import torch.optim as optim
 import copy
 import random
-import subprocess
-import sys
-import wandb
-DEVICE = torch.device("cpu")
-# DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  #device cup or gpu
+# DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  #device cup or gpu
 
 def transform_AA_mutation(value):
     """
@@ -186,13 +186,6 @@ def snps_encoding(snp_genotype_df,snp_info_df,genoype_list,scoring_method:tuple=
                           'H':[0.3,0,0.3,0.3],'V':[0.3,0.3,0.3,0],'N':[0.25,0.25,0.25,0.25],np.nan:[0,0,0,0]}
     print(snp_genotype_df)
     print(snp_info_df)
-    # #drop drop snps whose value is the same for all genotype
-    # drop_subset = snp_info_df.columns.to_list()
-    # drop_subset.remove('Locus_Name')
-    # print(drop_subset)
-    # snp_info_df.drop_duplicates(inplace=True,subset=drop_subset)
-    # print('after drop duplicate')
-    # print(snp_info_df)
     #merge snp_info_df with snp_genotype_df based on Locus_name
     snp_merge_df = pd.merge(snp_genotype_df,snp_info_df,on='Locus_Name',how='inner')
     # print(snp_merge_df)
@@ -212,9 +205,7 @@ def snps_encoding(snp_genotype_df,snp_info_df,genoype_list,scoring_method:tuple=
             np_snp =[]
             for nucleotide in snp_merge_df[genotype]:
                 values = np.array(one_hot_dictionary[nucleotide])#length four
-                # print(values)
-                # raise EOFError
-                # print(values.shape)
+
                 np_snp.append(values)
             else:
                 snp_value = np.vstack(np_snp) #(7637, 4)
@@ -236,14 +227,6 @@ def snps_encoding(snp_genotype_df,snp_info_df,genoype_list,scoring_method:tuple=
             grantham_score, scaler = minmax_scaler(grantham_score)
             snp_value_tensor = torch.cat([snp_value_tensor, grantham_score], dim=-1)
         # print(snp_value_tensor.shape) #shape=[snps_num,feature_size]
-
-        #save temporary files to csv and dill
-        # if name == '':
-        #     df = pd.DataFrame(data=snp_value_tensor,columns=['snp_value','blosum62_scaled','grantham_scaled'],index=range(snp_value_tensor.shape[0]))
-        #     df.to_csv('../temporary/{}_{}.csv'.format(int(genotype),name))
-        # elif name == 'one_hot':
-        #     df = pd.DataFrame(data=snp_value_tensor,columns=['snp_value_A','snp_value_G','snp_value_C','snp_value_T','blosum62_scaled','grantham_scaled'],index=range(snp_value_tensor.shape[0]))
-        #     df.to_csv('../temporary/{}_{}.csv'.format(int(genotype),name))
         if scoring_method!=():
             with open('../temporary/{}_{}_{}.dill'.format(genotype,name,"_".join(scoring_method)),'wb') as file1:
                 dill.dump(snp_value_tensor,file1)
@@ -255,113 +238,6 @@ def snps_encoding(snp_genotype_df,snp_info_df,genoype_list,scoring_method:tuple=
         genotype_tensor_dictionary[genotype] = snp_value_tensor #[snps_num,feature_size]
     else:
         return genotype_tensor_dictionary
-
-def genetics_embedding_NN(method:int,):
-    """
-    This is the function to embed SNPs information into ODE parameters.
-    """
-    #METHOD 1: train together with PINN
-        #1dCNN, all locus in one dimension,from chromosome 1A to 7D. [bathc_size,snps_number,feature_size]
-        #2dCNN, [bathc_size,chr_num,snps_number,feature_size]
-
-    #Method2: pretrain network for classification (use training set), then freeze parameter except last layer to predict r and ymax in PINN
-
-    #Methods3: pretrain network for classification, take last layer output as input together with ts and env input for PINN.
-
-class embedding_by_1dCNN(nn.Module):
-    def __init__(self,snps_number,feature_size,out_channel_1,out_channel_2,kernel_size_1,kernel_size_2,max_pooling_stride,output_size=2,snp_enbed=''):
-        super().__init__()
-        self.vector_length = 6 #embedded size, embedded snps into a vector, and pretrained loss is to maximize distance among vectors
-        self.seq_len = snps_number
-        #use stride ==kernel size for CNN layer input shape: (N,C,L)
-        self.cnn1 = nn.Conv1d(in_channels=feature_size,out_channels=out_channel_1,kernel_size=kernel_size_1,stride=kernel_size_1)
-        self.leakyrelu = nn.LeakyReLU()
-        out_size1 = int(
-            ((self.seq_len - (kernel_size_1-1)-1) / kernel_size_1) + 1)  # output size for cnn layer
-        print(out_size1)
-        self.max_pooling1 = nn.MaxPool1d(kernel_size=kernel_size_1,stride=max_pooling_stride)#same kenerl size as cnn1
-        pooling_out_size1 = int(
-            ((out_size1 - (kernel_size_1-1)-1) / max_pooling_stride) + 1)  # output size after maximum pooling
-        print(pooling_out_size1)
-        self.cnn2 = nn.Conv1d(in_channels=out_channel_1, out_channels=out_channel_2, kernel_size=kernel_size_2,stride=kernel_size_2)
-        out_size2 = int(
-            ((pooling_out_size1 - (kernel_size_2-1)-1) / kernel_size_2) + 1)  # output size for cnn layer
-        print('output size2:{}'.format(out_size2))
-        self.maxpooling2 = nn.MaxPool1d(kernel_size=kernel_size_2, stride=max_pooling_stride)
-        pooling_out_size2 = int(
-            ((out_size2 - (kernel_size_2-1)-1)/ max_pooling_stride) + 1)  # outputsize after maximum pooling
-        # (inputsize+2*padding-dilation*(kernerl_size-1)-1)/stride +1 https://pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html
-        print("maxpooling2 output:{}".format(pooling_out_size2))
-        self.flatten = nn.Flatten()
-        # pooling out * cnn1 out channel ouputsize is 2, which link to parameter r and ymax
-        self.cluster = nn.Linear(pooling_out_size2 * out_channel_2,self.vector_length)
-        if snp_enbed =='one_hot':
-            self.fc = nn.Linear(self.vector_length+4, output_size) #concat year code here
-        else:
-            #if not one hot, year is embed into a number
-            self.fc = nn.Linear(self.vector_length + 1, output_size)  # concat year code here
-        self.relu=nn.ReLU()
-        self.tanh = nn.Tanh()
-        self.sigmoid = nn.Sigmoid()
-    def forward(self, inputx):
-
-        year_encode = inputx[:, :, -1]
-        input_x = inputx[:,:,:-1]
-        cnn1_out = self.cnn1(input_x)
-        cnn1_out = self.leakyrelu(cnn1_out)
-        max_pooling1_out = self.max_pooling1(cnn1_out)
-        cnn2_out = self.cnn2(max_pooling1_out)
-        cnn2_out = self.leakyrelu(cnn2_out)
-        max_pooling2_out = self.maxpooling2(cnn2_out)
-        # print('max pooling out:{}'.format(max_pooling2_out))
-        # print(max_pooling2_out.shape)
-        flatten_out = self.flatten(max_pooling2_out)
-        # print(flatten_out.shape)
-        cluster_out = self.cluster(flatten_out)
-        #print(cluster_out.shape,year_encode.shape)
-        parameter_input = torch.cat([cluster_out,year_encode],dim=-1) #[sample_num,10]
-        # print(parameter_input[0,:])
-        # print(torch.unique(parameter_input,dim=1).shape)
-        out_fc = self.fc(parameter_input)
-        # out_fc = self.out_fc)+1 #make sure lager than 0 less than 2
-        self.r = self.sigmoid(out_fc[:,0]) #shape should be [batchsize,1]
-        # print('self r shape: {}'.format(self.r.shape))
-        self.y_max=self.tanh(out_fc[:,1])+1
-        # print(self.r,self.y_max)
-        # print(cluster_out.shape)
-        return cluster_out
-    def init_network(self):
-        # initialize weight and bias(use xavier and 0 for weight and bias separately)
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                #https://pytorch.org/cppdocs/api/function_namespacetorch_1_1nn_1_1init_1ace282f75916a862c9678343dfd4d5ffe.html
-                nn.init.xavier_uniform_(param)
-            elif 'bias' in name:
-                nn.init.constant_(param, 0.0)
-class MLP_embedding(nn.Module):
-    def __init__(self,input_size=20,out_1_size=6):
-        super().__init__()
-        self.init_network()
-        self.fc = nn.Linear(in_features=input_size,out_features=2)
-        self.Relu = nn.ReLU()
-        self.tanh = nn.Tanh()
-        self.fc2 = nn.Linear(in_features=out_1_size,out_features=2)
-        self.sigmoid = nn.Sigmoid()
-    def forward(self,inputx):
-        out1 = self.fc(inputx)
-
-        self.r = self.sigmoid(out1[:, 0])  # shape should be [batchsize,1]
-        # print('self r shape: {}'.format(self.r.shape))
-        self.y_max = self.tanh(out1[:, 1]) + 1
-        return out1
-    def init_network(self):
-        # initialize weight and bias(use xavier and 0 for weight and bias separately)
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                #https://pytorch.org/cppdocs/api/function_namespacetorch_1_1nn_1_1init_1ace282f75916a862c9678343dfd4d5ffe.html
-                nn.init.xavier_uniform_(param)
-            elif 'bias' in name:
-                nn.init.constant_(param, 0.0)
 
 def calculate_distance_matrix(genotype_list,snp_encode_name=''):
     """
@@ -552,11 +428,11 @@ def encode_snp_to_tensor(genotype_list, genotype_encode_name:str='',snp_encode:s
                 #
                 # else:
                 #     print(f"File exists: {file_path}")
-                kinship_df = pd.read_csv('../temporary/kinship_matrix_astle_all_present_genotype.csv',header=0,index_col=0)
+                kinship_df = pd.read_csv('../temporary/kinship_matrix_astle.csv',header=0,index_col=0)
                 kinship_df.columns = kinship_df.columns.astype(int)
                 genotype_kinship_similarity = torch.tensor(kinship_df[genotype].values).reshape(len(kinship_df[genotype]), 1)
                 print(genotype_kinship_similarity.shape)
-                with open('../temporary/{}_{}_all_present_genotype.dill'.format(genotype, genotype_encode_name),
+                with open('../temporary/{}_{}.dill'.format(genotype, genotype_encode_name),
                           'wb') as file_save:
                     # save distance encoding tensor
                     dill.dump(genotype_kinship_similarity, file_save)
@@ -588,250 +464,26 @@ def distance_criterion(output: torch.Tensor) -> torch.Tensor: #, class_id: int
     else:
         loss = 1 / (euclidean_distance / pairs)
     return loss
-    # euclidean_distance_same_cluster=0.0
-    # pairs_same_cluster =0
-    # # this is to maximize distance between vects not in the same group and minimmize ingroup distance
-    # # try:
-    # #     class_id = class_id.to_list()
-    # # except:
-    # #     class_id = class_id.tolist()
-    # # print(class_id)
-    # # for id in class_id.unique():
-    # #     #loop through all genotype id
-    # #     id_index = [index for index, value in enumerate(class_id) if str(value) == str(id)]
-    # #     if len(id_index)>=2: #if one genotype has a replicates, then calculate distance for the same genotype
-    # #         for i in id_index:
-    # #             id_index.remove(i) #remove to avoid calculated distance for the vector itself
-    # #             for j in id_index:
-    # #                 euclidean_distance_same_cluster += torch.nn.functional.pairwise_distance(output[i, :], output[j, :])
-    # #                 pairs_same_cluster = pairs_same_cluster + 1
-    # # else:
-    # #     try:
-    # #         euclidean_distance_same_cluster_average =euclidean_distance_same_cluster/pairs_same_cluster
-    # #     except:
-    # #         euclidean_distance_same_cluster_average = 0.000001
-    # euclidean_distance = 0.0
-    # pairs=0
-    # id_no_replicate_list = copy.deepcopy(class_id.unique())
-    # for index_no_rep,id_i in enumerate(id_no_replicate_list):
-    #     id_index = [index for index, value in enumerate(class_id) if str(value) == str(id_i)]
-    #     print(id_index)
-    #     euclidean_distance_same_cluster += torch.nn.functional.pairwise_distance(output[id_index[0], :],output[id_index[1], :])
-    #     pairs_same_cluster = pairs_same_cluster + 1
-    #     average_output_i = torch.mean(output[id_index, :],dim=0)
-    #     for index_j_no_rep in range(index_no_rep,len(id_no_replicate_list)):#loop through all other genotype id except id_i
-    #         id_j = id_no_replicate_list[index_j_no_rep]
-    #         id_index_j = [index for index, value in enumerate(class_id) if str(value) == str(id_j)]
-    #         average_output_j = torch.mean(output[id_index_j, :], dim=0)
-    #         # sum distance between i and each j
-    #         euclidean_distance += torch.nn.functional.pairwise_distance(average_output_i, average_output_j)
-    #         pairs = pairs + 1
-    # else:
-    #     try:
-    #         euclidean_distance_same_cluster_average =euclidean_distance_same_cluster/pairs_same_cluster
-    #     except:
-    #         euclidean_distance_same_cluster_average = 0.000001
-    # # loss = 1 /((euclidean_distance / pairs)-0) #euclidean_distance_same_cluster_average
-    # # print('out group distance :{}.'.format((euclidean_distance / pairs)))
-    # # print('in group distance :{}.'.format(euclidean_distance_same_cluster_average))
-    # loss = 1/((euclidean_distance / pairs) -euclidean_distance_same_cluster_average)#in group distance/ out group length
-    # return loss
 
-def train_clustering_model(train, validation, test, model, epochs, lr,genotype_train,genotype_validation,genotype_test):
+def save_marker_information_to_dill_seperately():
 
-    model.train()
-    losses = []
-    validation_losses_plot=[]
-    test_losses_plot = []
-    validation_losses = []
-    model_dict = {}
-    optimiser = optim.Adam(model.parameters(), lr=lr)
-    for epoch in range(epochs):  # loop over the dataset multiple times
-
-        # input to device
-        inputs = train.to(DEVICE)
-
-        # zero the parameter gradients
-        optimiser.zero_grad()
-        # forward
-        outputs = model(inputs)
-        loss = distance_criterion(outputs,genotype_train)
-        losses.append(loss.item())
-        loss.backward() #backward
-        optimiser.step() #update parameters
-
-        # Validation loss
-        model.eval()  # Set model to evaluation mode
-        with torch.no_grad():
-            #calculate test and validation loss for plot and stop criteria
-            validation_outputs = model(validation)
-            validation_loss = distance_criterion(validation_outputs,genotype_validation)
-            validation_losses_plot.append(validation_loss.item())
-            test_outputs = model(test)
-            test_loss = distance_criterion(test_outputs,genotype_test)
-            test_losses_plot.append(test_loss.item())
-        if (epoch + 1) % 10 == 0:
-            validation_losses.append(validation_loss)
-            model_dict[str(validation_loss)] = copy.deepcopy(model)
-
-            #print loss every 10 epochs
-            print(f"Epoch {epoch+1}/{epochs}, loss: {losses[-1]:.4f}")
-            # print_parameters_from_ode(model)
-            print('validation loss:{}'.format(validation_loss))
-    else:
-        model_return = model_dict[str(min(validation_losses))]
-        figure =plot_loss_change(losses, validation_losses_plot,test_losses_plot, name='loss_change')
-        epoch_num = list(model_dict.keys()).index(str(min(validation_losses)))
-
-    return epoch_num,model_return
-
-def pretrain_genetics_embedding(genotype_split:tuple,year_list:tuple,file_name='',snp_encode_name=''):
-    """
-    call train_clustering_model for pretrain and find optimal hyperparameters set to maximize distance among different genotype
-    """
-    random.seed(0)
-    np.random.seed(0)
-    torch.manual_seed(0)  # the random seeds
-    train_validation_test_list = []
-    genotype_id_list =[]
-    for genotype_list in genotype_split:
-        # genotype_list = [33, 106, 122, 133, 5, 30, 218, 2, 17, 254, 282, 294, 301, 302, 335, 339, 341, 6, 362]
-        # genotype_list = list(set(genotype_list))
-        # check if genetics input tensor exist, otherwise create
-        genotype_id_list.append(genotype_list) #genotype id for train validation and test
-        encode_snp_to_tensor(genotype_list, genotype_encode_name=snp_encode_name)
-        tensor_list = []
-        print(genotype_list)
-        for genotype in genotype_list:
-            with open('../temporary/{}_{}.dill'.format(genotype,snp_encode_name), 'rb') as file1:
-                genotype_tensor = dill.load(file1)
-                tensor_list.append(genotype_tensor.unsqueeze(dim=0))
-        genetics_input_tensor = torch.cat(tensor_list, dim=0).float()
-        print(genetics_input_tensor.shape)
-        genetics_input_tensor = torch.permute(genetics_input_tensor, (0, 2, 1))
-        # print(genetics_input_tensor.shape)
-        train_validation_test_list.append(genetics_input_tensor)
-    train,validation,test= train_validation_test_list[0],train_validation_test_list[1],train_validation_test_list[2]
-    train_id, validation_id, test_id = genotype_id_list[0].to(DEVICE),genotype_id_list[1].to(DEVICE),genotype_id_list[2].to(DEVICE)
-    year_train,year_validation,year_test =year_list[0].to(DEVICE),year_list[1].to(DEVICE),year_list[2].to(DEVICE)
-
-    # print(year_tensor_train)
-    print('year tensor shape:{}'.format(year_train.shape))
-
-    #convert nan to0.0
-    train = torch.nan_to_num(train, nan=0.0, posinf=0.0, neginf=0.0).to(DEVICE)
-    validation = torch.nan_to_num(validation, nan=0.0, posinf=0.0, neginf=0.0).to(DEVICE)
-    test = torch.nan_to_num(test, nan=0.0, posinf=0.0, neginf=0.0).to(DEVICE)
-    #concat year code to the end of input tensor
-    print(train.shape,year_train.shape)
-    # # add year code
-    # if snp_encode_name !='one_hot':
-    #     train = torch.cat([train, year_train.unsqueeze(-1).unsqueeze(-1)], dim=-1)
-    #     validation = torch.cat([validation, year_validation.unsqueeze(-1).unsqueeze(-1)], dim=-1)
-    #     test = torch.cat([test, year_test.unsqueeze(-1).unsqueeze(-1)], dim=-1)
-    # else:
-    #     train = torch.cat([train,year_train],dim=-1)
-    #     validation = torch.cat([validation, year_validation], dim=-1)
-    #     test = torch.cat([test, year_test], dim=-1)
-
-    print('training shape')
-    print(train.shape)
-    print(validation.shape)
-    print(test.shape)
-    snps_embedding_pre_train_result = pd.DataFrame()
-    if snp_encode_name == '' or snp_encode_name == 'one_hot':
-        for out_channel_1 in [2]:
-            for out_channel_2 in [1]:
-                for kernel1 in [9]:
-                    for kernel2 in [5]:
-                        model_snp = embedding_by_1dCNN(snps_number=train.shape[-1],feature_size=train.shape[1],out_channel_1=out_channel_1,out_channel_2=out_channel_2,
-                                                       kernel_size_1=kernel1,kernel_size_2=kernel2,max_pooling_stride=9,snp_enbed=snp_encode_name).to(DEVICE)
-                        count_parameters(model_snp)
-                        model_snp.init_network()
-                        stop_epoch,model_trained = train_clustering_model(train=train,validation=validation,test=test,model=model_snp,epochs=30,lr=0.001,
-                                                                          genotype_train=train_id,genotype_validation=validation_id,genotype_test=test_id)
-
-                        with torch.no_grad():
-                            model_trained.eval()
-                            train_loss = distance_criterion(model_trained(train),train_id).item()
-                            validation_loss = distance_criterion(model_trained(validation),validation_id).item()
-                            test_loss = distance_criterion(model_trained(test),test_id).item()
-                        new_row = pd.DataFrame({"out_channel_1":out_channel_1,'out_channel_2':out_channel_2,"kernel1":kernel1,
-                                                    "kernel2":kernel2,'train_loss':train_loss,"validation_loss":validation_loss,
-                                                "test_loss":test_loss},index=[0]).astype(int)
-                        snps_embedding_pre_train_result=pd.concat([snps_embedding_pre_train_result,new_row])
-                        with open('snps_embedding_model/{}_{}_{}_{}_{}_{}.dill'.format(file_name,out_channel_1,out_channel_2,kernel1,kernel2,snp_encode_name),'wb') as file_2:
-                            dill.dump(model_trained,file_2)
-                        file_2.close()
-        else:
-            snps_embedding_pre_train_result = snps_embedding_pre_train_result.sort_values(by="validation_loss").reset_index(drop=True)
-            print(snps_embedding_pre_train_result)
-            hyperparameter = snps_embedding_pre_train_result.loc[0,['out_channel_1','out_channel_2',
-            'kernel1','kernel2']].values.tolist()
-            print(hyperparameter)
-            return hyperparameter,(train,validation,test)
-    else:
-        for size in [3]:
-            model_snp = MLP_embedding(input_size=train.shape[-1],out_1_size=size).to(DEVICE)
-            count_parameters(model_snp)
-            model_snp.init_network()
-            train = train.squeeze().to(DEVICE)
-            validation = validation.squeeze().to(DEVICE)
-            test = test.squeeze().to(DEVICE)
-            stop_epoch, model_trained = train_clustering_model(train=train, validation=validation, test=test,
-                                                               model=model_snp, epochs=300, lr=0.005,
-                                                               genotype_train=train_id, genotype_validation=validation_id,
-                                                               genotype_test=test_id)
-
-            with torch.no_grad():
-                model_trained.eval()
-                train_loss = distance_criterion(model_trained(train), train_id).item()
-                validation_loss = distance_criterion(model_trained(validation), validation_id).item()
-                test_loss = distance_criterion(model_trained(test), test_id).item()
-            new_row = pd.DataFrame({"out_1_size": size, 'train_loss': train_loss, "validation_loss": validation_loss,
-                                    "test_loss": test_loss}, index=[0]).astype(int)
-            snps_embedding_pre_train_result = pd.concat([snps_embedding_pre_train_result, new_row])
-            with open('snps_embedding_model/{}_{}_{}.dill'.format(file_name, size, snp_encode_name), 'wb') as file_2:
-                dill.dump(model_trained, file_2)
-            file_2.close()
-        else:
-            snps_embedding_pre_train_result = snps_embedding_pre_train_result.sort_values(by="validation_loss").reset_index(drop=True)
-            print(snps_embedding_pre_train_result)
-            hyperparameter = snps_embedding_pre_train_result.loc[0,['out_1_size']].values.tolist()
-            print(hyperparameter)
-            return hyperparameter,(train,validation,test)
-def save_marker_information_to_dill_seperately(genotype_list):
-
+    #create genotype_one_hot_encoding for multiple genotype model
+    genotype_list = find_genotype_present_at_multiple_years()
     genotype_name_list, snp_genotype_df, snp_info_df = read_SNPs_file_based_on_genotype_list(genotype_list,
                                                                                              ordinal_encoded=True)
     print('genotype without gabi key will be dropped, {} genotypes left'.format(len(genotype_name_list)))
-    # genotype_name_list_df = pd.DataFrame({'genotype_id':genotype_name_list},index=range(len(genotype_name_list)))
-    # genotype_name_list_df.to_csv('../processed_data/fouryear_genotypes.csv')
-    snps_encoding(snp_genotype_df, snp_info_df, genotype_name_list, name='one_hot',
-                  scoring_method=())
+    encode_snp_to_tensor(genotype_name_list, 'genotype_one_hot_encoding', snp_encode='', scoring_method=())
+
+
+    # create kinship_encoding for multiple genotype model only use 19 genotypes present in all four years
+    encode_snp_to_tensor(genotype_name_list, 'kinship_matrix_encoding', snp_encode='', scoring_method=())
+
+    #can run for more genotypes, but not in this paper
+    # genotype_list=genotype_present_in_at_least_in_one_of_selected_years(year_list=[2018,2019,2021,2022])
     # encode_snp_to_tensor(genotype_name_list, 'kinship_matrix_encoding', snp_encode='', scoring_method=())
-    # calculate_distance_matrix(genotype_name_list,snp_encode_name='')
+
 def main():
-    # import rpy2.robjects as ro
-    # ro.r('R.version')
-    from torch.utils.data import random_split
-    # genotype_list = find_genotype_present_at_multiple_years()
-    genotype_list=genotype_present_in_at_least_in_one_of_selected_years(year_list=[2018,2019,2021,2022])
-    # save_marker_information_to_dill_seperately(genotype_list)
-    # genotype_list=[33, 106, 122, 133, 5, 30, 218, 2, 17, 254, 282, 294, 301, 302, 335, 339, 341, 6, 362]
-    encode_snp_to_tensor(genotype_list, 'similarity_encoding', snp_encode='one_hot', scoring_method=())
-    # encode_snp_to_tensor(genotype_list,'similarity_encoding',snp_encode='',scoring_method=('blosum62',))
-    # encode_snp_to_tensor(genotype_list, 'kinship_matrix_encoding', snp_encode='', scoring_method=())
-
-    # encode_snp_to_tensor(genotype_list, '', snp_encode='', scoring_method=())
-    # genotype_similarity_encoding(genotype_list)
-    # read_SNPs_file_based_on_genotype_list(genotype_list,snps_encoded=False)
-
-    # pretrain_genetics_embedding(genotype_list,snp_encode_name='one_hot')
-
-    # df =pd.read_table("C:\data_from_paper/ETH/olivia_WUR/genotype_markers/GABI_WHEAT_90k.txt", header=0, sep=' ')
-    # print(df)
-    # df.to_csv('90k.csv')
+    save_marker_information_to_dill_seperately()
 
 
 if __name__ == '__main__':

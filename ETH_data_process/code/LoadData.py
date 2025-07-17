@@ -259,9 +259,6 @@ def load_multiple_year_data(height_file="C:/data_from_paper/ETH/olivia_WUR/proce
     else:
         # print(new_height_df['value'])
         print(height_df_multiple_year)
-        # print(len(copy.deepcopy(new_height_df).dropna(subset='value').index))
-        # print(len(canopy_df_multiple_year.index))
-        # print(len(copy.deepcopy(new_canopy_df).dropna(subset='value').index))
         assert len(height_df_multiple_year.dropna(subset='value').index) == len(copy.deepcopy(new_height_df).dropna(subset='value').index)
         with open('rest_timestamps_dfs.dill', 'wb') as file:
             dill.dump([new_canopy_df,new_height_df], file)
@@ -567,36 +564,6 @@ def main():
     #                         canopy_coverage_file="C:/data_from_paper/ETH/trait_repository_clone/process_data/Canopy coverages.csv",
     #                         env_save_directory="C:/data_from_paper/ETH/trait_repository_clone/process_data/",
     #                         years=[2016,2017,2018,2019,2021,2022],keep_environment_covariant=True)
-    # canopy,height = load_multiple_year_data()
-    # average_based_on_days([canopy,height],5)
-    # 'load rf model'
-    # with open('model/rf_model/best_validation{}_rf_after_fit.dill', 'rb') as file:
-    #     best_rf=dill.load(file)
-    # file.close()
-    # best_rf.predict()
-    '''
-    canopy_df = data_load("C:/data_from_paper/ETH/olivia_WUR/process_data/Canopy coverage.csv",  2019)
-    av_data_canopy = average_based_on_genotype(canopy_df)
-    height_df = data_load("C:/data_from_paper/ETH/olivia_WUR/process_data/Plant height.csv",  2019)
-    av_data_height = average_based_on_genotype(height_df)
-    # save temporary data
-    # av_data_canopy.to_csv("C:/data_from_paper/ETH/olivia_WUR/process_data/Canopy_coverage_average_2019.csv")
-    # av_data_height.to_csv("C:/data_from_paper/ETH/olivia_WUR/process_data/Plant_height_average_2019.csv")
 
-    time = av_data_height['timestamp'].unique() #there is a around 100 days time gap in the middle of time series
-    # plot
-
-    # note theta =  gamma, y_max, yt0
-    theta = np.array([0.05, 1.0, 0.006])
-
-
-    fit_para_df = solve_logistic_ode(logistic_ode_model, av_data_height, theta)
-    print(fit_para_df)
-
-    residual = pd.read_csv('residual.csv',header=0,index_col=0)
-    from scipy import stats
-    result,p =stats.normaltest(residual)
-    print(result,p)
-    '''
 if __name__ == "__main__":
     main()

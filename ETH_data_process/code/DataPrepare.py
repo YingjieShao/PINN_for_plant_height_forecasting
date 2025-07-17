@@ -28,23 +28,6 @@ def count_parameters(model):
     print(table)
     print(f"Total Trainable Params: {total_params}")
 
-    # activations_used = []
-    # # Define a hook function to track activation functions
-    # def activation_hook(module, input, output):
-    #     if isinstance(module, (
-    #     torch.nn.ReLU, torch.nn.Sigmoid, torch.nn.Tanh, torch.nn.LeakyReLU, torch.nn.ELU, torch.nn.Softmax)):
-    #         activations_used.append(type(module).__name__)
-    # # Register the hook to each module
-    # for name, module in model.named_modules():
-    #     module.register_forward_hook(activation_hook)
-    # # Dummy input to call forward pass
-    # input_data = torch.randn(10,3,15902)
-    # # Forward pass
-    # output = model(input_data)
-    # # Print the tracked activation functions
-    # print("Activation functions used in order:")
-    # for i, activation in enumerate(activations_used):
-    #     print(f"{i + 1}: {activation}")
     return total_params
 
 

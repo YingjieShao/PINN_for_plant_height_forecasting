@@ -152,7 +152,7 @@ def read_cmd_input():
 
 def main():
     from NNmodel_training import run_logistic_ode_pinn
-    from visualize_data import find_genotype_present_at_multiple_years
+    from raw_data_merge_visualize import find_genotype_present_at_multiple_years
     print("""
         This script is to run PINN
         usage: python3 run_model_cmd.py -mode <str, corresponding to mode parameters in function run_logistic_ode_pinn> 

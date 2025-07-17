@@ -1,5 +1,6 @@
-import time
-
+"""
+This is the script defines and trains multiple genotype models.
+"""
 import numpy as np
 import torch
 import torch.nn as nn
@@ -14,125 +15,10 @@ from torch.utils.data import DataLoader, TensorDataset
 from DataPrepare import reverse_min_max_scaling,train_test_split_based_on_group,train_test_split_based_on_two_groups, count_parameters,manually_data_split_based_on_one_group,manually_split_on_two_groups
 import matplotlib.pyplot as plt
 import seaborn as sns
-from torchdiffeq import odeint
 from DataPrepare import minmax_scaler
 from NNmodel_training import average_based_on_group_df,mask_rmse_loss,smooth_tensor_ignore_nan,plot_multiple_sequences_colored_based_on_label_df
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  #device cup or gpu
-class simple_genotype_code_temperature_input_height_prediction(nn.Module):
-    def __init__(self, genetic_feature_size, input_size, hidden_size, num_layer, last_fc_hidden_size=5,genetics_embedding_size=5):
-        super().__init__()
-        # self.init_network()
-        self.g_embedding = nn.Sequential(nn.Linear(in_features=genetic_feature_size, out_features=genetics_embedding_size),
-                                          # nn.LeakyReLU(),
-                                          # nn.Linear(in_features=5, out_features=194),
-                                          nn.Tanh())
-        # self.g_embedding = nn.Linear(in_features=genetic_feature_size, out_features=194)
-        # self.g_embedding = nn.Sequential(nn.Conv1d(in_channels=1,out_channels=5,kernel_size=36,stride=36),
-        #                                  nn.MaxPool1d(kernel_size=36,stride=36),
-        #                                  nn.Flatten())
-
-        self.leakyrelu = nn.LeakyReLU()
-        self.tanh = nn.Tanh()
-        self.lstm1 = nn.LSTM(input_size=(input_size + 1), hidden_size=hidden_size, num_layers=num_layer)
-        self.lstm2 = nn.LSTM(input_size=hidden_size, hidden_size=1, num_layers=1)
-        self.lstm3 = nn.LSTM(input_size=(1+genetics_embedding_size), hidden_size=last_fc_hidden_size, num_layers=1)
-        self.lstm4 = nn.LSTM(input_size=last_fc_hidden_size, hidden_size=1, num_layers=1)
-
-    def forward(self, inputx, input_genotype_code,ts_input):
-
-        # input_genotype_code= input_genotype_code.unsqueeze(1)
-        # print('g input shape:{}'.format(input_genotype_code.shape))
-        genotype_effect_vector = self.g_embedding(input_genotype_code)
-
-        # shape=(time_step,n_samples,feature_size)
-        # genotype_effect_vector = 0.2*genotype_effect_vector.permute(1,0).unsqueeze(dim=-1)
-        # print(genotype_effect_vector.shape)
-        genotype_effect_vector = genotype_effect_vector.unsqueeze(dim=0).repeat(170, 1,
-                                                                                      1)  # resahpe to (seq_length,sample size, 2)
-
-        combine_vector = torch.cat([inputx,ts_input], dim=-1)
-        out_put,c = self.lstm1(combine_vector)
-        # out_put = self.leakyrelu(out_put)
-        out_put,c= self.lstm2(out_put)
-        out_put = self.leakyrelu(out_put)
-        # plt.plot(torch.squeeze(copy.deepcopy(out_put.detach())[:, 0, :].cpu()), c='blue')
-        add_genetics_vector = torch.cat([genotype_effect_vector, out_put], dim=-1)
-        out_put, c = self.lstm3(add_genetics_vector)
-        out_put, c = self.lstm4(out_put)
-        out_put = self.leakyrelu(out_put)
-        return out_put,combine_vector,None
-
-    def init_network(self):
-        # initialize weight and bias(use xavier and 0 for weight and bias separately)
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                # nn.init.constant_(param, 0.0046)
-                # random_number_init = np.random.uniform(0.001,0.0001)
-                # nn.init.constant_(param, random_number_init)
-                # nn.init.xavier_uniform_(param)
-                nn.init.orthogonal_(param)
-            elif 'bias' in name:
-                nn.init.constant_(param, 0.0)
-            # print(name, param)
-class genotype_code_temperature_input_height_prediction_fc_CNN(nn.Module):
-    def __init__(self, genetic_feature_size, input_size, hidden_size, num_layer, last_fc_hidden_size=5,genetics_embedding_size=19):
-        super().__init__()
-        # self.init_network()
-
-        # self.g_embedding = nn.Linear(in_features=genetic_feature_size, out_features=194)
-        self.g_embedding = nn.Sequential(nn.Conv1d(in_channels=1,out_channels=3,kernel_size=12,stride=7),
-                                         nn.MaxPool1d(kernel_size=7,stride=5),
-                                         nn.Flatten(),nn.Tanh())
-        cnn_out=int(1+(309-3)/7)
-        genetics_embedding_size = int(3*(1+(cnn_out-7)/5))
-        print(genetics_embedding_size)
-        self.leakyrelu = nn.LeakyReLU()
-        self.relu = nn.ReLU()
-        # self.tanh = nn.Tanh()
-        self.lstm1 = nn.LSTM(input_size=(input_size + 1), hidden_size=hidden_size, num_layers=num_layer)
-        self.lstm2 = nn.LSTM(input_size=hidden_size, hidden_size=3, num_layers=1)
-        self.fc= nn.Sequential(nn.Linear(in_features=(3+24),out_features=last_fc_hidden_size),
-                               nn.LeakyReLU(),nn.Linear(last_fc_hidden_size,1))
-        # self.weight_g = nn.Parameter(torch.randn(1,1))
-        # self.weight_h = nn.Parameter(torch.randn(1,1))
-    def forward(self, inputx, input_genotype_code,ts_input):
-
-        input_genotype_code= input_genotype_code.unsqueeze(dim=1)
-        #Conv1d input shape: [batch_size, channels, seq_len]
-        # genotype_effect_vector = input_genotype_code
-        # print('g input shape:{}'.format(genotype_effect_vector.shape))
-        genotype_effect_vector = self.g_embedding(input_genotype_code)
-        # genotype_effect_vector = self.leakyrelu(genotype_effect_vector)
-        combine_vector = torch.cat([inputx,ts_input], dim=-1)
-        out_put,c = self.lstm1(combine_vector)
-        # out_put = self.leakyrelu(out_put)
-        out_put,c= self.lstm2(out_put)
-        out_put = self.leakyrelu(out_put)
-        # plt.plot(torch.squeeze(copy.deepcopy(out_put.detach())[:,0,:].cpu()),c='blue')
-        outputs=[]
-        for t in range(out_put.shape[0]):
-            #input for fc layer: samplesize feature size)
-            outputs.append(self.fc(torch.cat([out_put[t,:,:],genotype_effect_vector],dim=-1)))
-            # outputs.append(self.weight_h*out_put[t,:,:]+self.weight_g*(genotype_effect_vector[:,t].unsqueeze(dim=-1)))
-        out_put = torch.stack(outputs,dim=0)
-        # print('output shape')
-        # print(out_put.shape)
-        out_put = self.leakyrelu(out_put)
-        return out_put,combine_vector,None
-
-    def init_network(self):
-        # initialize weight and bias(use xavier and 0 for weight and bias separately)
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                # # nn.init.constant_(param, 0.0046)
-                # random_number_init = np.random.uniform(0.001,0.0001)
-                # nn.init.constant_(param, random_number_init)
-                # nn.init.xavier_uniform_(param)
-                nn.init.orthogonal_(param)
-            elif 'bias' in name:
-                nn.init.constant_(param, 0.0)
-            # print(name, param)
 class genotype_code_temperature_input_height_prediction_fc(nn.Module):
     def __init__(self, genetic_feature_size, input_size, hidden_size, num_layer, last_fc_hidden_size=5,genetics_embedding_size=19):
         super().__init__()
@@ -141,10 +27,6 @@ class genotype_code_temperature_input_height_prediction_fc(nn.Module):
                                           # nn.LeakyReLU(),
                                           # nn.Linear(in_features=5, out_features=194),
                                          nn.Tanh())
-        # self.g_embedding = nn.Linear(in_features=genetic_feature_size, out_features=194)
-        # self.g_embedding = nn.Sequential(nn.Conv1d(in_channels=1,out_channels=5,kernel_size=36,stride=36),
-        #                                  nn.MaxPool1d(kernel_size=36,stride=36),
-        #                                  nn.Flatten())
 
         self.leakyrelu = nn.LeakyReLU()
         self.relu = nn.ReLU()
@@ -156,12 +38,9 @@ class genotype_code_temperature_input_height_prediction_fc(nn.Module):
         self.lstm2 = nn.LSTM(input_size=hidden_size, hidden_size=3, num_layers=1)
         self.fc= nn.Sequential(nn.Linear(in_features=(3+genetics_embedding_size),out_features=last_fc_hidden_size),
                                nn.LeakyReLU(),nn.Linear(last_fc_hidden_size,1))
-        # self.weight_g = nn.Parameter(torch.randn(1,1))
-        # self.weight_h = nn.Parameter(torch.randn(1,1))
+
     def forward(self, inputx, input_genotype_code,ts_input):
-        # print(inputx)
-        # input_genotype_code= input_genotype_code.unsqueeze(1)
-        # genotype_effect_vector = input_genotype_code
+
         # print('g input shape:{}'.format(genotype_effect_vector.shape))
         genotype_effect_vector = self.g_embedding(input_genotype_code)
         # genotype_effect_vector = self.leakyrelu(genotype_effect_vector)
@@ -175,10 +54,8 @@ class genotype_code_temperature_input_height_prediction_fc(nn.Module):
         for t in range(out_put.shape[0]):
             #input for fc layer: samplesize feature size)
             outputs.append(self.fc(torch.cat([out_put[t,:,:],genotype_effect_vector],dim=-1)))
-            # outputs.append(self.weight_h*out_put[t,:,:]+self.weight_g*(genotype_effect_vector[:,t].unsqueeze(dim=-1)))
         out_put = torch.stack(outputs,dim=0)
-        # print('output shape')
-        # print(out_put.shape)
+
         out_put = self.leakyrelu(out_put)
         # print(out_put)
         return out_put,combine_vector,None
@@ -187,48 +64,6 @@ class genotype_code_temperature_input_height_prediction_fc(nn.Module):
         # initialize weight and bias(use xavier and 0 for weight and bias separately)
         for name, param in self.named_parameters():
             if 'weight' in name:
-                # # nn.init.constant_(param, 0.0046)
-                # random_number_init = np.random.uniform(0.001,0.0001)
-                # nn.init.constant_(param, random_number_init)
-                # nn.init.xavier_uniform_(param)
-                nn.init.orthogonal_(param)
-            elif 'bias' in name:
-                nn.init.constant_(param, 0.0)
-            # print(name, param)
-class simple_genotype_code_temperature_input_height_prediction_CUSTOMIZE_RNN(nn.Module):
-    def __init__(self, genetic_feature_size, input_size, hidden_size, num_layer, genotype_num=19):
-        super().__init__()
-        # self.init_network()
-        # self.linear = nn.Linear(in_features=genetic_feature_size, out_features=seq_len)
-
-        # self.leakyrelu = nn.LeakyReLU()
-        self.rnn1 = RNNModel(input_size=(input_size+genetic_feature_size+1), hidden_size=hidden_size, num_layers=num_layer)
-        self.rnn2 = RNNModel(input_size=hidden_size, hidden_size=1, num_layers=1)
-
-    def forward(self, inputx, input_genotype_code,ts_input):
-        genotype_effect_vector = input_genotype_code.unsqueeze(dim=0).repeat(194, 1,
-                                                                                      1)  # resahpe to (seq_length,sample size, 2)
-        # print(genotype_effect_vector.shape)
-        combine_vector = torch.cat([genotype_effect_vector, inputx,ts_input], dim=-1)
-        out_put1,smooth_1 = self.rnn1(combine_vector)
-        out_put2,smooth_2= self.rnn2(out_put1)
-        out_put = torch.abs(out_put2)
-        # out_put = self.leakyrelu(out_put)
-        #then we are predict the change of plant height from rnn then accumulated them
-        # out_put = torch.cumsum(out_put, dim=0)
-
-        # print(out_put)
-        smooth_loss = torch.mean((out_put1-smooth_1)**2)+torch.mean((out_put2-smooth_2)**2)
-        return out_put,combine_vector,smooth_loss
-
-    def init_network(self):
-        # initialize weight and bias(use xavier and 0 for weight and bias separately)
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                # nn.init.constant_(param, 0.0046)
-                # random_number_init = np.random.uniform(0.001,0.0001)
-                # nn.init.constant_(param, random_number_init)
-                # nn.init.xavier_uniform_(param)
                 nn.init.orthogonal_(param)
             elif 'bias' in name:
                 nn.init.constant_(param, 0.0)
@@ -237,16 +72,10 @@ class simple_genotype_code_temperature_input_height_prediction_CUSTOMIZE_RNN(nn.
 class pinn_genotype_embedding(nn.Module):
     def __init__(self, genetic_feature_size, input_size, hidden_size, num_layer,last_fc_hidden_size=5,genetics_embedding_size=5):
         super().__init__()
-        # self.init_network()
-        # self.g_embedding = nn.Sequential(nn.Linear(in_features=genetic_feature_size, out_features=5),
-        #                                   nn.LeakyReLU(),
-        #                                   nn.Linear(in_features=5, out_features=194))
+
         self.g_embedding1 = nn.Linear(in_features=genetic_feature_size, out_features=genetics_embedding_size)
         self.g_parameters= nn.Linear(in_features=genetics_embedding_size, out_features=2)
-        # self.g_embedding2=nn.Linear(in_features=5, out_features=170)
-        #need to use nn.linear to predict new genotype
-        # self.linear = nn.Linear(in_features=2,out_features=2)
-        # self.g_parameters = nn.Embedding(num_embeddings=genotype_num,embedding_dim=2) #related to  r and ymax
+
         self.leakyrelu = nn.LeakyReLU()
         self.lstm1 = nn.LSTM(input_size=(input_size + 1), hidden_size=hidden_size, num_layers=num_layer)
         self.lstm2 = nn.LSTM(input_size=hidden_size, hidden_size=1, num_layers=1)
@@ -262,8 +91,6 @@ class pinn_genotype_embedding(nn.Module):
         genotype_effect_vector = self.tanh(genotype_effect_vector)
         #convet to 2 value
         genotype_effect_embedding = self.g_parameters(genotype_effect_vector) #length2, r and ymax
-        # genotype_effect_embedding = self.tanh(genotype_effect_embedding)
-        # genotype_effect_vector_param = self.g_parameters(genotype_effect_embedding)
 
         self.r = self.sigmoid(genotype_effect_embedding[:,0])
         self.y_max= self.tanh(genotype_effect_embedding[:,1]) +1
@@ -273,10 +100,8 @@ class pinn_genotype_embedding(nn.Module):
 
         combine_vector = torch.cat([inputx, ts_input], dim=-1)
         out_put, c = self.lstm1(combine_vector)
-        # out_put = self.leakyrelu(out_put)
         out_put, c = self.lstm2(out_put)
         out_put = self.leakyrelu(out_put)
-        # plt.plot(torch.squeeze(copy.deepcopy(out_put.detach())[:, 0, :].cpu()), c='blue')
         add_genetics_vector = torch.cat([genotype_effect_vector, out_put], dim=-1)
         out_put, c = self.lstm3(add_genetics_vector)
         out_put, c = self.lstm4(out_put)
@@ -287,9 +112,6 @@ class pinn_genotype_embedding(nn.Module):
         # initialize weight and bias(use xavier and 0 for weight and bias separately)
         for name, param in self.named_parameters():
             if 'weight' in name:
-                # random_number_init = np.random.uniform(0.001,0.0001)
-                # nn.init.constant_(param, random_number_init)
-                # nn.init.xavier_uniform_(param)
                 nn.init.orthogonal_(param)
                 # print(name)
                 # print(param)
@@ -348,8 +170,6 @@ class pinn_genotype_embedding_fc(nn.Module):
                 self.fc(torch.cat([out_put[t, :, :], input_genotype_code], dim=-1)))
             # outputs.append(self.weight_h*out_put[t,:,:]+self.weight_g*(genotype_effect_vector[:,t].unsqueeze(dim=-1)))
         out_put = torch.stack(outputs, dim=0)
-        # print('output shape')
-        # print(out_put.shape)
         out_put = self.leakyrelu(out_put)
 
         return out_put,genotype_effect_embedding,None
@@ -357,246 +177,18 @@ class pinn_genotype_embedding_fc(nn.Module):
         # initialize weight and bias(use xavier and 0 for weight and bias separately)
         for name, param in self.named_parameters():
             if 'weight' in name:
-                # random_number_init = np.random.uniform(0.001,0.0001)
-                # nn.init.constant_(param, random_number_init)
-                # nn.init.xavier_uniform_(param)
                 nn.init.orthogonal_(param)
                 # print(name)
                 # print(param)
             elif 'bias' in name:
                 nn.init.constant_(param, 0.0)
-
-
-class pinn_genotype_embedding_trainable_parameter_fc(nn.Module):
-    def __init__(self, genetic_feature_size, input_size, hidden_size, num_layer, last_fc_hidden_size=5,
-                 genetics_embedding_size=19,unique_genotypes:tuple=('33', '106', '122', '133', '5', '30', '218', '2', '17', '254', '282', '294', '301', '302', '335', '339', '341', '6', '362')):
-        super().__init__()
-        # self.init_network()
-        self.g_embedding = nn.Sequential(
-            nn.Linear(in_features=genetic_feature_size, out_features=genetics_embedding_size),
-            # nn.LeakyReLU(),
-            # nn.Linear(in_features=5, out_features=194),
-            # nn.Tanh()
-        )
-        # self.g_embedding1 = nn.Linear(in_features=genetic_feature_size, out_features=genetics_embedding_size)
-        self.tanh = nn.Tanh()
-        # Create trainable parameters for unique genotypes
-        self.genotype_params = nn.ParameterDict({
-            genotype: nn.Parameter(torch.tensor([0.1,0.8]), requires_grad=True)
-            for genotype in unique_genotypes
-        })
-        self.trainable_param =True
-
-        # self.g_parameters = nn.Embedding(num_embeddings=genotype_num,embedding_dim=2) #related to  r and ymax
-
-        self.lstm1 = nn.LSTM(input_size=(input_size + 1), hidden_size=hidden_size, num_layers=num_layer)
-        self.leakyrelu = nn.LeakyReLU()
-        self.lstm2 = nn.LSTM(input_size=hidden_size, hidden_size=3, num_layers=1)
-        self.fc = nn.Sequential(nn.Linear(in_features=(3 + genetics_embedding_size), out_features=last_fc_hidden_size),
-                                nn.LeakyReLU(), nn.Linear(last_fc_hidden_size, 1))
-
-        self.sigmoid = nn.Sigmoid()
-
-        # self.relu = nn.ReLU()
-
-    def forward(self, inputx, input_genotype_code, ts_input,genotype_indices):
-        # print(input_genotype_code)
-        # first embedding layer
-        input_genotype_code = self.g_embedding(input_genotype_code)
-        # genotype_effect_vector = self.leakyrelu(genotype_effect_vector)
-
-        # convet to 2 value
-        # genotype_effect_embedding = self.g_parameters(input_genotype_code)  # length2, r and ymax
-
-        params = torch.stack([self.genotype_params[str(genotype.item())] for genotype in genotype_indices])
-        self.r = params[:, 0].unsqueeze(1)       # r values for each sample
-        self.y_max = params[:, 1].unsqueeze(1)   # y_max values for each sample
-
-        input_genotype_code = self.tanh(input_genotype_code)
-        # print(self.r)
-        # print(self.y_max)
-        combine_vector = torch.cat([inputx, ts_input], dim=-1)
-        out_put, c = self.lstm1(combine_vector)
-        # out_put = self.leakyrelu(out_put)
-        out_put, c = self.lstm2(out_put)
-        out_put = self.leakyrelu(out_put)
-        # plt.plot(torch.squeeze(copy.deepcopy(out_put.detach())[:, 0, :].cpu()), c='blue')
-        outputs = []
-        for t in range(out_put.shape[0]):
-            # input for fc layer: samplesize,feature size)
-
-            outputs.append(
-                self.fc(torch.cat([out_put[t, :, :], input_genotype_code], dim=-1)))
-            # outputs.append(self.weight_h*out_put[t,:,:]+self.weight_g*(genotype_effect_vector[:,t].unsqueeze(dim=-1)))
-        out_put = torch.stack(outputs, dim=0)
-        # print('output shape')
-        # print(out_put.shape)
-        out_put = self.leakyrelu(out_put)
-
-        return out_put, None, None
-
-    def init_network(self):
-        # initialize weight and bias(use xavier and 0 for weight and bias separately)
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                # random_number_init = np.random.uniform(0.001,0.0001)
-                # nn.init.constant_(param, random_number_init)
-                # nn.init.xavier_uniform_(param)
-                nn.init.orthogonal_(param)
-                # print(name)
-                # print(param)
-            elif 'bias' in name:
-                nn.init.constant_(param, 0.0)
-
-
-class pinn_genotype_embedding_CUSTOMIZE_RNN(nn.Module):
-    def __init__(self, genetic_feature_size, input_size, hidden_size, num_layer, genotype_num=19):
-        super().__init__()
-        # self.init_network()
-        self.g_parameters = nn.Linear(in_features=genetic_feature_size, out_features=2) #need to use nn.linear to predict new genotype
-        # self.linear = nn.Linear(in_features=2,out_features=2)
-        # self.g_parameters = nn.Embedding(num_embeddings=genotype_num,embedding_dim=2) #related to  r and ymax
-        self.leakyrelu = nn.LeakyReLU()
-        self.rnn1 = RNNModel(input_size=(input_size+2+1), hidden_size=hidden_size, num_layers=num_layer)
-        self.rnn2 = RNNModel(input_size=hidden_size, hidden_size=1, num_layers=1)
-        self.sigmoid = nn.Sigmoid()
-        self.tanh = nn.Tanh()
-        self.relu = nn.ReLU()
-    def forward(self, inputx, input_genotype_code,ts_input):
-        # print(input_genotype_code)
-        genotype_effect_vector_param = self.g_parameters(input_genotype_code) #length2, r and ymax
-        # genotype_effect_vector_param = self.linear(self.relu(genotype_effect_vector_param))
-        self.r = self.sigmoid(genotype_effect_vector_param[:,0])
-        self.y_max= self.tanh(genotype_effect_vector_param[:,1]) +1
-        # print(self.r)
-        # print(self.y_max)
-        genotype_effect_vector=genotype_effect_vector_param.unsqueeze(dim=0).repeat(194,1,1) #resahpe to (seq_length,sample size, 2)
-        combine_vector = torch.cat([genotype_effect_vector, inputx,ts_input], dim=-1)
-        out_put1, smooth_1 = self.rnn1(combine_vector)
-        out_put2, smooth_2 = self.rnn2(out_put1)
-        # out_put = torch.abs(out_put2)
-        out_put = self.leakyrelu(out_put2)
-        # then we are predict the change of plant height from rnn then accumulated them
-        # out_put = torch.cumsum(out_put, dim=0)
-
-        # print(out_put)
-        #difference between use 0.5 time step and 1 time step
-        smooth_loss = torch.mean((out_put1 - smooth_1) ** 2) + torch.mean((out_put2 - smooth_2) ** 2)
-
-        return out_put,genotype_effect_vector_param,smooth_loss
-
-    def init_network(self):
-        # initialize weight and bias(use xavier and 0 for weight and bias separately)
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                # random_number_init = np.random.uniform(0.001,0.0001)
-                # nn.init.constant_(param, random_number_init)
-                # nn.init.xavier_uniform_(param)
-                nn.init.orthogonal_(param)
-                # print(name)
-                # print(param)
-            elif 'bias' in name:
-                nn.init.constant_(param, 0.0)
-                # print(name, param)
-
-def smoothing_spline(input_tensor,num_knots=10):
-    """
-    smooth to fill na for training
-    """
-    from scipy.interpolate import splrep, BSpline
-    from scipy.interpolate import LSQUnivariateSpline
-
-    input_tensor = copy.deepcopy(input_tensor)
-    ori_type=input_tensor.dtype
-    #drop where y = na
-    input_tensor[input_tensor == 0.0] = np.nan
-    # sns.scatterplot(input_tensor[:,:,0])
-    # plt.show()
-    # Convert tensor to NumPy for SciPy compatibility
-    tensor_np = input_tensor.cpu().numpy()
-
-    # Prepare an empty array for the result
-    filled_np = np.copy(tensor_np)
-    nan_mask = np.isnan(tensor_np)
-    # Iterate over each sample and feature
-    for sample in range(tensor_np.shape[1]):
-        for feature in range(tensor_np.shape[2]):
-            # Get the sequence for this feature across the sequence length
-            y = tensor_np[:, sample, feature]
-            t = np.arange(len(y))
-
-            # Mask out NaNs for fitting
-            valid_mask = ~np.isnan(y)
-            t_valid = t[valid_mask]
-            y_valid = y[valid_mask]
-
-            if len(y_valid) > num_knots:
-                # Define knot positions for the P-spline
-                knots = np.linspace(t_valid[1], t_valid[-2], num_knots - 2)
-
-                # Fit the P-spline to valid (non-NaN) data
-                try:
-                    spline = LSQUnivariateSpline(t_valid, y_valid, t=knots, k=3)
-                except:
-                    print(len(y_valid))
-                    sns.scatterplot(y_valid)
-                    sns.scatterplot(t_valid,color='g')
-                    plt.show()
-                    spline = LSQUnivariateSpline(t_valid, y_valid, t=knots, k=3)
-                # Calculate smoothed values across the full range `t`
-                smoothed_y = spline(t)
-
-                # Replace internal NaN values (between the first and last valid indices)
-                first_valid_index = t_valid[0]
-                last_valid_index = t_valid[-1]
-
-                # Only replace NaNs within the range of the first and last valid indices
-                nan_indices = np.where(np.isnan(y[first_valid_index:last_valid_index + 1]))[0] + first_valid_index
-                filled_np[nan_indices, sample, feature] = smoothed_y[nan_indices]
-
-    # Convert back to PyTorch tensors
-    filled_tensor = torch.tensor(filled_np, dtype=ori_type)
-    nan_mask_tensor = torch.tensor(nan_mask, dtype=torch.bool)
-    #plot after smooth filled value
-    # plot_filled_values(input_tensor, filled_tensor, nan_mask_tensor)
-    #change na back to 0.0
-    filled_tensor = torch.nan_to_num(filled_tensor, nan=0.0, posinf=0.0, neginf=0.0).to(DEVICE)
-    print('na in smoothed data')
-    print(torch.sum(torch.isnan(filled_tensor)))
-    return filled_tensor
-
-
-def plot_filled_values(tensor, filled_tensor, nan_mask):
-    seq_len, num_samples, feature_size = tensor.shape
-
-    for sample in range(num_samples):
-        for feature in range(feature_size):
-            t = np.arange(seq_len)
-            y_orig = tensor[:, sample, feature].numpy()
-            y_filled = filled_tensor[:, sample, feature].numpy()
-
-            # Determine colors: red for filled values, blue for original values
-            color = np.where(nan_mask[:, sample, feature].numpy(), 'red', 'blue')
-
-            # Plot original and filled values
-            plt.figure(figsize=(8, 5))
-            plt.scatter(t, y_filled, c=color, label='Filled (red) / Original (blue)')
-            plt.plot(t, y_filled, linestyle='--', alpha=0.5, label='Smoothed curve')
-            plt.xlabel("Time Step")
-            plt.ylabel("Value")
-            plt.title(f"Sample {sample + 1}, Feature {feature + 1}")
-            plt.legend()
-            plt.show()
 
 def physics_loss(model,predict_y,ts_x):
 
     dy_dt_nn = torch.autograd.grad(
         predict_y, ts_x, grad_outputs=torch.ones_like(predict_y), create_graph=True, is_grads_batched=False
     )[0]
-    # print('autogradient shape')
-    # print(dy_dt_nn.shape)
-    # print(model.r.shape)
-    # print(predict_y.shape)
+
     reshpae_r = model.r.view(1, model.r.shape[0], 1)
     reshpae_ymax = model.y_max.view(1, model.y_max.shape[0], 1)
     dY_dt_ode = reshpae_r * predict_y * (1 - (predict_y / reshpae_ymax))
@@ -625,17 +217,6 @@ def l2_loss(l2_regulization,model):
         l2_loss = torch.tensor([0.0])
     return l2_loss
 
-def mask_rmse_loss_weight(true_y:torch.tensor, predict_y:torch.tensor):
-    '''
-    calculate mask where (which time step) inout value is zero, weight based on true height
-    https://discuss.pytorch.org/t/how-does-applying-a-mask-to-the-output-affect-the-gradients/126520/2
-    '''
-    device = true_y.device
-    mask = (~torch.isin(true_y, torch.tensor(0.0).to(device))).float()
-
-    mask_rmse_loss_value = (torch.sum((true_y+1.0)*(((true_y - predict_y) * mask) ** 2)) / torch.count_nonzero(mask))**0.5
-
-    return mask_rmse_loss_value#,torch.count_nonzero(mask)
 def mask_dtw_loss(true_y:torch.tensor, predict_y:torch.tensor, shapedtw=None):
     from shapedtw.shapedtw import shape_dtw
     from shapedtw.shapeDescriptors import SlopeDescriptor, PAADescriptor, CompoundDescriptor, DerivativeShapeDescriptor,DWTDescriptor,RawSubsequenceDescriptor
@@ -677,46 +258,6 @@ def mask_dtw_loss(true_y:torch.tensor, predict_y:torch.tensor, shapedtw=None):
     else:
         return shape_dtw_distance/true_y.shape[1]
 
-# def transfer_prediction_to_ranking(plant_height_tensor:torch.tensor)->torch.tensor:
-#     """
-#     This function is to rank the plant height curve, the simplest case, use average value of the plant height curve to rank
-#     """
-#     from differentiable_sorting.torch import bitonic_matrices, diff_sort
-#     from torch.autograd import Variable
-#     plant_height_tensor = copy.deepcopy(plant_height_tensor.detach()).squeeze()
-#     # corresponding_genotype_list = copy.deepcopy(corresponding_genotype_list).squeeze()
-#     # plant_height_tensor[plant_height_tensor==0.0] = torch.nan
-#     # print('shape plant height after squeeze:{}'.format(plant_height_tensor.shape))
-#     max_plant_height = torch.max(plant_height_tensor,dim=0,keepdim=True).values
-#     # print('max plant height:{}'.format(max_plant_height))
-#     # rank_tensor = torch.argsort(max_plant_height).argsort() # argsort is not differentiable
-#     # ranked_genotype = torch.gather(corresponding_genotype_list,dim=0,index=rank_tensor)
-#
-#     rank_index = torchsort.soft_rank(max_plant_height, regularization_strength=0.005)
-#     # print(rank_index)
-
-    # return rank_index.squeeze()
-
-def genotype_ranking_loss(true_rank,predict_rank):
-    """
-    This function is to calculated genotype height ranking loss by comparing the true rank and predict genotype rank
-    """
-    from torchmetrics.regression import SpearmanCorrCoef
-    assert true_rank.shape == predict_rank.shape
-    # print(true_rank.shape,predict_rank.shape)
-    loss_metric = SpearmanCorrCoef()
-    spear_man_loss = 1-loss_metric(true_rank.float(),predict_rank.float())
-    # mse = nn.MSELoss()
-    # spear_man_loss = mse(true_rank.float(),predict_rank.float())
-    return spear_man_loss
-    # mismatch_rank_count =0
-    # for i in range(len(true_rank)):
-    #     if true_rank[i] != predict_rank[i]:
-    #         mismatch_rank_count +=1
-    # else:
-    #     # print("mismatched_count:{}".format(mismatch_rank_count))
-    #     return mismatch_rank_count
-
 def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, pinn_weight,l2=0.5,y_max_bound=False,
                        smooth_loss=False,rule=False,ode_intergration_loss=False):
     #
@@ -746,15 +287,6 @@ def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, p
     train_loader = DataLoader(TensorDataset(inputs_e.permute(1,0,2),input_g,y.permute(1,0,2),ts_train.permute(1,0,2),g_id_train),
                               batch_size=batch_size, shuffle=False)
 
-
-    # #mask every two days input
-    # masked_e = mask_data_every_n_day(inputs_e, 2)
-    # masked_ts = mask_data_every_n_day(ts_train, 2)
-    # masked_g = input_g.clone().requires_grad_(True).to(DEVICE)
-
-    # sns.scatterplot(torch.squeeze(y).detach())
-    # plt.show()
-    # raise EOFError
     for epoch in range(epochs):
         model.train()
         train_loss = 0.0
@@ -776,20 +308,12 @@ def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, p
             else:
                 # print(inputs_e,input_g,ts_train)
                 outputs, g_embed, smooth_loss_item = model(inputs_e, input_g, ts_train)
-            # outputs.retain_grad()#convert it to a leaf node, retains gradient use for check later
-            # check genotype rank loss
-            # rank_true = transfer_prediction_to_ranking(y)
-            # rank_predict = transfer_prediction_to_ranking(outputs)
-            # rank_loss=genotype_ranking_loss(rank_true, rank_predict)
-            # trainig_rank_loss += rank_loss
+
             data_loss = mask_rmse_loss(predict_y=outputs, true_y=y)
             train_data_loss_running+=data_loss
-            # data_loss_plot = mask_rmse_loss(predict_y=outputs, true_y=y)
-            # shapedtw_loss_train = mask_dtw_loss(true_y=y, predict_y=outputs)
-            # mask = (~torch.isin(y, torch.tensor(0.0).to(DEVICE))).float()
+
             l2_loss_term = l2_loss(l2, model)
             total_loss = data_loss + l2_loss_term #+ rank_loss #+distance_loss
-
 
             #loss will be negetive when it increase
             if rule:
@@ -812,31 +336,6 @@ def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, p
                 penalize_r = torch.mean(0.1 * (0.00001 ** model.r))
                 penalize_r_loss_running +=penalize_r
                 total_loss = total_loss + penalize_r
-
-                # T_np = ts_train.detach().numpy()
-                # Temp_np = inputs_e.detach().numpy()
-                # Y_np = outputs.detach().numpy()
-                # dy_dt_np = dy_dt_nn.detach().numpy()
-                # dy_dtemp = torch.autograd.grad(
-                #     outputs, inputs_e, grad_outputs=torch.ones_like(outputs), create_graph=True, is_grads_batched=False
-                # )[0]
-                # dy_dtemp_np = dy_dtemp.detach().numpy()
-                #
-                # # Create 3D figure
-                # fig = plt.figure(figsize=(10, 7))
-                # ax = fig.add_subplot(111, projection='3d')
-                #
-                # # Plot the surface of y
-                # ax.plot_surface(T_np, Temp_np, Y_np, cmap='coolwarm', alpha=0.6)
-                # # Quiver plot: gradient field (dy/dt, dy/dtemp)
-                # ax.quiver(T_np, Temp_np, Y_np, dy_dt_np, dy_dtemp_np, np.zeros_like(dy_dt_np), color='black',
-                #           length=0.5, normalize=True)
-                # # Labels and title
-                # ax.set_xlabel('t (Time)')
-                # ax.set_ylabel('Temp (Temperature)')
-                # ax.set_zlabel('y (Function Output)')
-                # ax.set_title('Gradient Field of y = sin(t) + log(temp)')
-                # plt.show()
 
                 if y_max_bound:
                     # reshpae_ymax = model.y_max.view(1, model.y_max.shape[0], 1)
@@ -862,22 +361,15 @@ def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, p
                 else:
                     y_max_loss=None
 
-            # time1 = time.time()
-            # print(total_loss.device)
-            # print()
+
             total_loss.backward()
-            # sns.lineplot(torch.squeeze(copy.deepcopy(output.grad.detach()))[:, :10])
             optimizer.step()
-            # time2 = time.time()
-            # print('update time:{}'.format(time2-time1))
             running_loss = total_loss.item()
             train_loss += running_loss
 
         else:
-            # print(len(train_loader))
             train_loss /= len(train_loader)
             train_data_loss_running /= len(train_loader)
-            # trainig_rank_loss /= len(train_loader)
             if derivative_loss_running !=0.0:
                 derivative_loss_running /=len(train_loader)
             if penalize_r_loss_running!=0.0:
@@ -901,8 +393,6 @@ def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, p
                 if y_max_bound:
                     ymax_true_val, _ = torch.max(y_val, dim=0)
                     reshpae_ymax_val = model.y_max.view(model.y_max.shape[0], 1)
-                    # print(ymax_true.shape) #shapw=[sample_size,1]
-                    # print(reshpae_ymax.shape)
                     y_max_loss_val = torch.mean((reshpae_ymax_val - ymax_true_val) ** 2) ** 0.5  # outputs[-1,:,:]
                     print("validation set y bound loss: {}".format(y_max_loss_val))
                     # val_loss = val_loss+y_max_loss_val
@@ -933,34 +423,7 @@ def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, p
             else:
                 #'val_train_sum_loss':train_validation_sum_losses[-1],
                 wandb.log({"train_loss":train_loss,'train_data_loss':train_data_loss_running,"val_loss": val_loss, "test_loss":test_loss,
-                           "smooth_loss":smooth_loss_item})#,"trainig_rank_loss":trainig_rank_loss}) #,"smooth_loss":smoothness_loss,"diverse_loss":diverse_loss*0.012
-
-            # # # # # print(model.r) plot
-            # # data_loss_plot = ((((y - outputs) * (y+1.0)) ** 2)** 0.5).cpu()
-            # # # sns.lineplot(torch.squeeze(copy.deepcopy(outputs.grad.detach()))[:, :10])
-            # sns.lineplot(torch.squeeze(copy.deepcopy(outputs.detach().cpu()))[:, :10])
-            # # # for i in range(10):
-            # # # #     sns.lineplot(torch.squeeze(copy.deepcopy(outputs.detach().cpu()))[:, i],color='r')
-            # # #     # sns.lineplot(torch.squeeze(copy.deepcopy(ode_intergrate_loss.detach()))[:,:6])
-            # # #     sns.lineplot(torch.squeeze(copy.deepcopy(dy_dt_ode.detach()))[:, i],color='g')
-            # #
-            # # #     data loss
-            # # #     data_loss_plot=5*((y - outputs)*mask)**2
-            # # #     print(data_loss_plot[:,0,:])
-            # # #     data_loss_plot=torch.squeeze(copy.deepcopy(data_loss_plot.detach()))[:, :8]
-            # # #     sns.lineplot(data_loss_plot)
-            # # #     for i in range(data_loss_plot.shape[1]):  # Iterate over each column
-            # # #         sns.lineplot(x=range(data_loss_plot.shape[0]), y=data_loss_plot[:, i].numpy(), color='green')
-            # # # Calculate standard deviation of auto-gradients at each time step
-            # # # grad_std_per_time = torch.std(copy.deepcopy(dy_dt_nn.detach()), dim=0)  # Std along the sample axis (dim=0)
-            # # # sns.lineplot(torch.squeeze(grad_std_per_time), color='blue')
-            # # # sns.lineplot(torch.squeeze(copy.deepcopy(dy_dt_nn.detach()))[:, :10], color='r')
-            # # sns.lineplot(torch.squeeze(data_loss_plot.detach().cpu()* mask.cpu())[:,:10])
-            # sns.scatterplot(torch.squeeze(copy.deepcopy(y).detach().cpu())[:,:10])
-            # plt.legend(loc='upper right')
-            # fig.canvas.draw_idle()
-            # fig.canvas.flush_events()
-            # plt.clf()
+                           "smooth_loss":smooth_loss_item})#,"trainig_rank_loss":trainig_rank_loss})
 
 
             # Save model checkpoints periodically
@@ -968,22 +431,6 @@ def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, p
                 print(f"Epoch {epoch + 1}/{epochs}, loss: {running_loss:.4f}")
                 print('validation loss: {}'.format(val_loss))
                 print('Test loss: {}'.format(test_loss))
-                # print('rank loss:{}'.format(trainig_rank_loss))
-                # hue_g = torch.squeeze(g_id_train).detach().numpy()
-                # print(hue_g)
-                # plot_y = copy.deepcopy(torch.squeeze(y.detach())).numpy()
-                # plot_pred_y = copy.deepcopy(torch.squeeze(outputs.detach())).numpy()
-                # print(plot_pred_y)
-                # colors = sns.color_palette("viridis", plot_y.shape[1])
-                #
-                # for seq in range(plot_y.shape[1]):
-                #     sns.scatterplot(x=torch.squeeze(ts_train[:,0,:]).detach().numpy(),y =plot_y[:,seq],color=colors[seq])
-                #     sns.lineplot(x=torch.squeeze(ts_train[:,0,:]).detach().numpy(),y=plot_pred_y[:,seq],color=colors[seq])
-                # plt.ylim(-0.2,1.5)
-                # plt.xlim(0, 285)
-                # fig.canvas.draw_idle()
-                # fig.canvas.flush_events()
-                # plt.clf()
                 if epoch >= 1500:
                     model_dict[str(val_loss)] = copy.deepcopy(model)
                     train_validation_sum_losses.append(val_loss)
@@ -991,32 +438,7 @@ def train_and_validate(train_set, val_set, test_set, model, optimizer, epochs, p
     else:
         model_return = model_dict[str(min(train_validation_sum_losses))]
         epoch_num = list(model_dict.keys()).index(str(min(train_validation_sum_losses)))
-
-        # torch.save(model_return.state_dict(), 'model_checkpoint.pth')
         return model_return,epoch_num*10+1500
-
-def distance_criterion(output: torch.Tensor) -> torch.Tensor: #, class_id: int
-    cluster_num = output.shape[1]
-    # print(cluster_num)
-
-    # Ensure tensors are on the right device and initialized properly
-    output = output.to(DEVICE)
-    euclidean_distance = torch.zeros(1, device=DEVICE)
-    pairs = torch.zeros(1, device=DEVICE)
-
-    for i in range(cluster_num):
-        for j in range(i + 1, cluster_num):  # Start from i+1 to avoid duplicate pairs and self-pairs
-            vector_i = output[ :,i]
-            vector_j = output[:,j ]
-            distance = torch.nn.functional.pairwise_distance(vector_i.unsqueeze(0), vector_j.unsqueeze(0))
-            euclidean_distance += distance
-            pairs += 1
-    # Avoid division by zero
-    if pairs.item() == 0:
-        loss = torch.tensor(float('inf'), device=DEVICE)  # or any large value, or handle it differently
-    else:
-        loss = 1 / (euclidean_distance / pairs)
-    return loss
 
 def mask_data_every_n_day(input_tensor,n):
     """
@@ -1280,22 +702,13 @@ def train_simple_g_e_interaction_model(if_pinn=False, model_name="", smooth_inpu
                                                                                                                      input_size=temperature_same_length_tensor.shape[-1],
                                                                                                                      hidden_size=hidden,num_layer=num_layer,
                                                                                                                      last_fc_hidden_size=last_fc_hidden_size,genetics_embedding_size=genetics_embedding_size).to(DEVICE)
-                                                        # model = pinn_genotype_embedding_trainable_parameter_fc(genetic_feature_size=train_g.shape[-1],
-                                                        #                                                              input_size=temperature_same_length_tensor.shape[-1],
-                                                        #                                                              hidden_size=hidden,num_layer=num_layer,
-                                                        #                                                              last_fc_hidden_size=last_fc_hidden_size,genetics_embedding_size=genetics_embedding_size).to(DEVICE)
 
                                                 else:
-                                                    if customize:
-                                                        model = simple_genotype_code_temperature_input_height_prediction_CUSTOMIZE_RNN(genetic_feature_size=genetics_input_tensor.shape[-1],
-                                                                                                                     input_size=temperature_same_length_tensor.shape[-1],
-                                                                                                                     hidden_size=hidden,num_layer=num_layer,
-                                                                                                                     genotype_num=train_y.shape[0]).to(DEVICE)
-                                                    else:
-                                                        model = genotype_code_temperature_input_height_prediction_fc(genetic_feature_size=genetics_input_tensor.shape[-1],
-                                                                                                                     input_size=temperature_same_length_tensor.shape[-1],
-                                                                                                                     hidden_size=hidden,num_layer=num_layer,
-                                                                                                                     last_fc_hidden_size=last_fc_hidden_size,genetics_embedding_size=genetics_embedding_size).to(DEVICE)
+
+                                                    model = genotype_code_temperature_input_height_prediction_fc(genetic_feature_size=genetics_input_tensor.shape[-1],
+                                                                                                                 input_size=temperature_same_length_tensor.shape[-1],
+                                                                                                                 hidden_size=hidden,num_layer=num_layer,
+                                                                                                                 last_fc_hidden_size=last_fc_hidden_size,genetics_embedding_size=genetics_embedding_size).to(DEVICE)
                                                 model.init_network()
 
                                                 total_params = count_parameters(model)
@@ -2187,32 +1600,12 @@ def read_cmd():
 
     return if_pinn,mode,genotype_encoding,smooth_loss,split_group,reduce_time_resolution,smooth_input,smooth_temp
 def main():
-    # from sktime.classification.distance_based import ShapeDTW
+
     if_pinn,mode,genotype_encoding,smooth_loss,split_group,reduce_time_resolution,smooth_input,smooth_temp = read_cmd()
     train_simple_g_e_interaction_model(if_pinn=if_pinn, model_name=mode,smooth_loss=smooth_loss,
                                        genotype_encoding=genotype_encoding,split_group=split_group,
                                        reduce_time_resolution=reduce_time_resolution,smooth_input=smooth_input,
                                        smooth_temp=smooth_temp,add_more_train_g=False)
-    # if_pinn,mode,genotype_encoding,smooth_loss,split_group,reduce_time_resolution,smooth_input,smooth_temp = read_cmd()
-    # train_simple_g_e_interaction_model(if_pinn=True, model_name='test_rank',smooth_loss=smooth_loss,
-    #                                    genotype_encoding='kinship_matrix_encoding',split_group='genotype.id',
-    #                                    reduce_time_resolution=reduce_time_resolution,smooth_input=smooth_input,
-    #                                    smooth_temp=False,add_more_train_g=False)
-    # hyperparameter_csv = 'multiple_g_result_pinn_True_pinn_result_lstm_sameval_g_more_train_gkinship_matrix_encoding_all_present_genotypeg_e_split_best_hyperparameters_result.csv'
-    # if_pinn = bool(hyperparameter_csv.find('pinn_True'))
-    #
-    # read_best_hyperparameter_retrain_with_different_data_split_seed(best_hyperparameter_file='best_model_result_summary/{}'.format(hyperparameter_csv),
-    #                                                                 model_name='pinn_False_NN_result_lstm_ameval_g_more_train_g',
-    #                                                                 genotype_encoding='kinship_matrix_encoding_all_present_genotype',
-    #                                                                 smooth_temp=False,split_group='g_e',rescale=True,if_pinn=if_pinn)
-    #
-    # hyperparameter_csv = 'multiple_g_result_pinn_True_pinn_result_lstm_sameval_g_more_train_gkinship_matrix_encoding_all_present_genotypegenotype_split_best_hyperparameters_result.csv'
-    # if_pinn = bool(hyperparameter_csv.find('pinn_True'))
-    # #
-    # read_best_hyperparameter_retrain_with_different_data_split_seed(best_hyperparameter_file='best_model_result_summary/{}'.format(hyperparameter_csv),
-    #                                                                 model_name='pinn_False_NN_result_lstm_ameval_g_more_train_g',
-    #                                                                 genotype_encoding='kinship_matrix_encoding_all_present_genotype',
-    #                                                                 smooth_temp=False,split_group='genotype.id',rescale=True,if_pinn=if_pinn)
 
 if __name__ == '__main__':
     main()

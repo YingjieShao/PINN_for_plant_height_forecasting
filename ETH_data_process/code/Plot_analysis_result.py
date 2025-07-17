@@ -1,5 +1,7 @@
 """
-This script is to visualize results
+This script is to visualize results.
+Most of the figures and table result is create with this script, the related Figures and Tables are written at the start
+of the function
 """
 import copy
 from pathlib import Path
@@ -9,76 +11,31 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import torch
 import seaborn as sns
-from torch.utils.data import TensorDataset, DataLoader
-import torch.optim as optim
 import platform
 import glob
+from MultipleGenotypeModel import mask_rmse_loss
 n_split_year_map = pd.DataFrame()
 def check_code_running_system():
+    """
+    Becasue Linux and Windows process the path differently, check here to be able to get the right file names.
+    """
     system = platform.system()
     print(system)
     return lower(system)
-def plot_saved_result(file='rf_mean_input_validation_result.csv'):
-    result_csv = pd.read_csv(file,header=0,index_col=0)
-    result = result_csv[['validation_MSE','validation_MAPE','pearson_coef','window_size','spearman_coef']]
-    plt.rc('xtick', labelsize=8)
-    fig,axs = plt.subplots(2,2)
-    sns.boxplot(data=result[['validation_MSE','window_size']],y= 'validation_MSE', x='window_size',palette="Blues",hue='window_size',legend=False,ax=axs[0,0])
-    sns.boxplot(data=result[['validation_MAPE','window_size']],y='validation_MAPE', x='window_size',palette="Blues",hue='window_size',legend=False,ax=axs[0,1])
-    sns.boxplot(data=result[['pearson_coef','window_size']],y='pearson_coef', x='window_size',palette="Blues",hue='window_size',legend=False,ax=axs[1,0])
-    sns.boxplot(data=result[['spearman_coef','window_size']],y='spearman_coef', x='window_size',palette="Blues",hue='window_size',legend=False,ax=axs[1,1])
 
-    plt.tight_layout()
-    # plt.savefig('{}.svg'.format(file.split('.')[0]),dpi=2400)
-    # plt.show()
-def plot_train_result(file='../samples_visualization/rf_plots/rf_mean_input_test_result_multiple_year_test.csv'):
-    result_csv = pd.read_csv(file,header=0,index_col=0)
-    result = result_csv[['mean_test_score','param_max_depth','param_max_features','param_n_estimators']].reset_index().fillna('NA')
-    result.drop_duplicates(inplace=True)
-    print(result[['mean_test_score','param_max_depth']])
-    plt.rc('xtick', labelsize=8)
-    fig,axs = plt.subplots(2,2)
-    sns.boxplot(data=result[['mean_test_score','param_max_depth']],y= 'mean_test_score', x='param_max_depth',palette="Blues",hue='param_max_depth',legend=False,ax=axs[0,0])
-    sns.boxplot(data=result[['mean_test_score','param_max_features']],y='mean_test_score', x='param_max_features',palette="Blues",hue='param_max_features',legend=False,ax=axs[0,1])
-    sns.boxplot(data=result[['mean_test_score','param_n_estimators']],y='mean_test_score', x='param_n_estimators',palette="Blues",hue='param_n_estimators',legend=False,ax=axs[1,0])
-
-    plt.tight_layout()
-    # plt.savefig('{}.svg'.format(file.split('.')[0]),dpi=2400)
-    # plt.show()
-
-def plot_NN_result(files=['best_test_one_layer_spearmanr_align.csv','best_test_2_spearmanr_align.csv','best_test_1_spearmanr_align.csv']):
-    result_list=[]
-    for file in files:
-        result_csv = pd.read_csv(file,header=0,index_col=0)
-        print(result_csv)
-        result_csv['model']=''.join(file.split('_')[2:4])
-
-        result = result_csv[['validation_MSE','spearmanr_validation','model']]
-        result_list.append(result)
-    result = pd.concat(result_list)
-    plt.rc('xtick', labelsize=8)
-    fig,axs = plt.subplots(2)
-    sns.boxplot(data=result[['validation_MSE','model']],y= 'validation_MSE', x='model',palette="Blues",hue='model',legend=False,ax=axs[0])
-    sns.boxplot(data=result[['spearmanr_validation','model']],y='spearmanr_validation', x='model',palette="Blues",hue='model',legend=False,ax=axs[1])
-
-    plt.tight_layout()
-    plt.savefig('{}.svg'.format(file.split('.')[0]),dpi=2400)
-    # plt.show()
-
-def plot_PINN_result(file='pinn_result/PINN_mask_loss_best_ remove_one_outlier.csv'):
+def calculate_average_result_from_saved_model_prediction_result(file='pinn_result/result_summary/single_genotype/PINN_mask_loss_best_result.csv'):
     """
     This is the function take the result.csv(before averge) to calculate average result and order based on validation rmse
     """
 
     result_csv = pd.read_csv(file,header=0,index_col=0,sep='[;,]')
-    print(result_csv)
+    # print(result_csv)
     len_row_1= len(result_csv.index)
     result_csv.drop_duplicates(inplace=True)
     len_row_2 = len(result_csv.index)
     if len_row_1 !=len_row_2:
         result_csv.to_csv(file)
-    # result_csv = result_csv[result_csv.l2 ==1.0]
-    # print(result_csv)
+
     result_csv['model']=''.join(file.split('_')[2:4])
     # try:
     result = result_csv[['validation_rMSE','train_rMSE','test_rMSE','train_shapeDTW','validation_shapeDTW','test_shapeDTW',
@@ -95,9 +52,8 @@ def plot_PINN_result(file='pinn_result/PINN_mask_loss_best_ remove_one_outlier.c
         x_axis = 'W_{}_TrP_{}_l2_{}_lr_{}'.format(result.loc[ind,'weight_physic'],result.loc[ind,'Trainable_Params'],
                                                          result.loc[ind,'l2'],result.loc[ind,'lr'])
         result.loc[ind,'x_axis'] = x_axis
-    print(result)
-    # sns.boxplot(data=result[['test_rMSE','n_split']],y= 'test_rMSE', x='n_split',palette="Blues")
-    # plt.show()
+    # print(result)
+
     calculate_std_for_different_seed_result(result, file)
 
 
@@ -113,11 +69,11 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
 
     #find mean result files
     if file_name=='pinn_penalize_r':
-        print("pinn_result/result_summary/mean_result_from5_seed/single_g/{}*115*.csv".format(name))
+        # print("pinn_result/result_summary/mean_result_from5_seed/single_g/{}*115*.csv".format(name))
         files = glob.glob("pinn_result/result_summary/mean_result_from5_seed/single_g/*{}*115*.csv".format(name))
-        print(len(files))
+        # print(len(files))
         assert len(files)==19
-        print(files)
+        # print(files)
         if 'windows' in system_name:
             files = [str(x).split('\\')[-1] for x in files]
         else:
@@ -125,7 +81,7 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
         pattern = re.compile(r'genotype(\d*)penalize_rpinnmode_True')
     elif file_name == 'pinn':
         files = glob.glob("pinn_result/result_summary/mean_result_from5_seed/single_g/{}*genotype*pinnmode_True*.csv".format(name))
-        print(files)
+        # print(files)
         if 'windows' in system_name:
             files = [str(x).split('\\')[-1] for x in files]
         else:
@@ -133,11 +89,11 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
         pattern = re.compile(r'genotype(\d*)pinnmode_True')
     elif file_name == 'ml':
         files = glob.glob("pinn_result/result_summary/mean_result_from5_seed/single_g/{}*genotype*pinnmode_False*rescaleFalse*.csv".format(name))
-        print('search for ML files: {}'.format("pinn_result/result_summary/mean_result_from5_seed/single_g/{}*genotype*pinnmode_False*.csv".format(name)))
-        print(len(files))
-        print(files)
+        # print('search for ML files: {}'.format("pinn_result/result_summary/mean_result_from5_seed/single_g/{}*genotype*pinnmode_False*.csv".format(name)))
+        # print(len(files))
+        # print(files)
         assert len(files)==19
-        print(files)
+        # print(files)
         if 'windows' in system_name:
             files = [str(x).split('\\')[-1] for x in files]
         else:
@@ -153,7 +109,7 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
         match = pattern.search(file)
         if match:
             genotype = match.group(1)  # Extract the genotype part
-            print(f"File: {file}")
+            # print(f"File: {file}")
             print(f"Genotype: {genotype}")
             df_param = pd.read_csv("pinn_result/result_summary/mean_result_from5_seed/single_g/{}".format(file), header=0, index_col=0).iloc[:1,
             :][['predicted_r','predicted_y_max']]
@@ -163,17 +119,17 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
             df_hyper = pd.read_csv("pinn_result/result_summary/mean_result_from5_seed/single_g/{}".format(file), header=0, index_col=0).iloc[:1,
             :][['weight_physic','Trainable_Params','l2','ode_int','lr','hidden_size','num_layer']] #'genetics_embedding_size','last_fc_hidden_size'
             df_hyper.index=['{}'.format(genotype)] #genotype as index
-            print(df_hyper)
+            # print(df_hyper)
             #read full result before average
             if file_name == 'pinn_penalize_r':
-                print('search for files:{}{}*genotype{}penalize_r*115.csv'.format(result_file_dir,name,genotype))
+                # print('search for files:{}{}*genotype{}penalize_r*115.csv'.format(result_file_dir,name,genotype))
                 original_file_names = glob.glob('{}{}*genotype{}penalize_r*115.csv'.format(result_file_dir,name,genotype))
                 assert len(original_file_names)==1
                 if 'windows' in system_name:
                     original_file_names = [str(x).split('\\')[-1] for x in original_file_names]
                 else:
                     original_file_names = [str(x).split('/')[-1] for x in original_file_names]
-                print('original_file:{}'.format(original_file_names))
+                # print('original_file:{}'.format(original_file_names))
                 orginal_df = pd.read_csv("{}{}".format(result_file_dir,original_file_names[0]),
                                          header=0, index_col=0)
             elif file_name == 'pinn':
@@ -188,8 +144,8 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
                 orginal_df = pd.read_csv("{}{}".format(result_file_dir,original_file_names[0]),
                                          header=0, index_col=0)
             elif file_name == 'ml':
-                print('seach: {}{}*genotype{}*.csv'.format(result_file_dir,name,
-                        genotype))
+                # print('seach: {}{}*genotype{}*.csv'.format(result_file_dir,name,
+                #         genotype))
                 original_file_names = glob.glob(
                     '{}{}*genotype{}*rescaleFalse*.csv'.format(result_file_dir,name,
                         genotype))
@@ -197,7 +153,7 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
                     original_file_names = [str(x).split('\\')[-1] for x in original_file_names]
                 else:
                     original_file_names = [str(x).split('/')[-1] for x in original_file_names]
-                print('original_file:{}'.format(original_file_names))
+                # print('original_file:{}'.format(original_file_names))
                 orginal_df = pd.read_csv("{}{}".format(result_file_dir,original_file_names[0]),
                                          header=0, index_col=0,sep='[;,]')
                 # print(orginal_df)
@@ -216,8 +172,6 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
                                 ]
             best_result_df['genotype']=genotype
             df_model_hyperparameters = pd.concat([df_model_hyperparameters, best_result_df])
-            # print('df_model_hyperparameters')
-            # print(df_model_hyperparameters)
 
             #read from the first line, which is the lowest validation rmse
             df = \
@@ -352,120 +306,13 @@ def plot_mean_error_bar_multiple_genotype(file_name='pinn',name='PINN_mask_loss_
         # plt.clf()
         return df_long,order_g
 
-def plot_loss(model,x,y,position,genotype,with_position=''):
-    learning_rate = 0.001  #
-    num_epochs = 500
-
-    # Convert input and target data to PyTorch datasets
-    print(x.shape)
-    print(y.shape)
-    print(position.shape)
-    print(genotype.shape)
-    dataset = TensorDataset(x, y, position, genotype)
-
-    # Create data loader for iterating over dataset in batches during training
-    dataloader = DataLoader(dataset, batch_size=30, shuffle=False)
-
-    # initialize model
-    model.init_network()
-
-    num_sequences = x.shape[0]
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Train the model
-    loss_list = []
-
-    x_axis = []
-    plt.ion()
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-
-    for epoch in range(num_epochs):
-        running_loss = 0.0  # running loss for every epoch
-        running_loss_test = 0.0
-
-        for i, (inputs, targets, position_batch, genotype_batch) in enumerate(dataloader):
-            # Zero the parameter gradients
-            optimizer.zero_grad()
-
-            # Forward pass
-
-            # print(inputs.shape)
-            yield_pre = model(inputs.float(),position_batch, genotype_batch)  # batch first, the input is (110,46,2) for 2019
-
-            # print("target:{}".format(predict_genotype.shape))
-            # print("output_fc{}".format(output_fc.shape))
-            targets = targets.float()
-            # print(targets)
-            # print(yield_pre.shape)
-            loss = model.spearman_rank_loss(true_label=targets, predict_Y=yield_pre)
-            # Backward pass and optimize
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item() * inputs.shape[1]  # loss.item() is the mean loss of the total batch
-
-        if (epoch + 1) % 10 == 0:
-            print('Epoch [{}/{}], Loss: {:.4f}'.format(epoch + 1, num_epochs,
-                                                       running_loss / (num_sequences)))
-            x_axis.append(epoch + 1)
-            # plot loss
-
-            loss_list.append(running_loss/(num_sequences))
-            #     # curve_loss_list.append(running_loss_curve/(num_sequences)-previous_curve_loss)
-            #     # gene_loss_list.append(running_loss_gene/(num_sequences)-previous_genoype_loss)
-            #     #
-            #     #
-            line1, = ax.plot(x_axis, loss_list, c='blue')
-            #     # line2, = ax.plot(x_axis, curve_loss_list, c='red')
-            #     # line3, = ax.plot(x_axis, gene_loss_list, c='orange')
-            #     ax.set_ylabel("MSE loss")
-            #     # line1.set_ydata(loss_list)
-            #     # line1.set_xdata(x_axis)
-            #     # line2.set_ydata(curve_loss_list)
-            #     # line2.set_xdata(x_axis)
-            #     # line3.set_ydata(gene_loss_list)
-            #     # line3.set_xdata(x_axis)
-            #     # plt.axhline(y=0, color='g', linestyle='-')
-            fig.canvas.draw_idle()
-            fig.canvas.flush_events()
-            plt.show(block=False)
-
-def merge_result_csv_file():
-    '''This function is to concat seperate dataframe which used for save result for different weights'''
-    files = glob.glob("pinn_result/result_summary/single_genotype/PINN_mask_loss_na_as_0_same_lengthgenotype335penalize_rpinnmode_Truefit_ml_first_FalsecorrectedFalsesmoothFalsefill_in_naTruerescaleFalsestart_date_91w*_.csv") #read all files for seperate weights
-    print(files)
-    try:
-        files = [str(x).split('\\')[1] for x in files]
-    except:
-        files = [str(x).split('/')[-1] for x in files]
-    # print(files)
-    print(len(files))
-    files_name = list(set([x.split('91w')[0] for x in files]))
-    print(len(files))
-    for file in files_name:
-        # print(file)
-        sub_files = glob.glob('pinn_result/result_summary/single_genotype/{}*_.csv'.format(file))
-        # print(sub_files)
-        try:
-            #this works when run from pycharm
-            sub_files = [str(x).split('\\')[1] for x in sub_files]
-        except:
-            #this works when run through cmd from linux
-            sub_files = [str(x).split('/')[-1] for x in sub_files]
-        df_merge = pd.DataFrame()
-        for sub_file in sub_files:
-            print(sub_file)
-            df = pd.read_csv('pinn_result/result_summary/single_genotype/{}'.format(sub_file),header=0,index_col=0)
-            df_merge = pd.concat([df_merge,df],axis=0)
-            df_merge.drop_duplicates(inplace=True)
-            print(df_merge)
-        else:
-            df_merge.to_csv('pinn_result/result_summary/{}91merge.csv'.format(file))
-            # print('rm pinn_result/result_summary/{}*_.csv'.format(file))
-            # os.system('rm pinn_result/result_summary/{}*_.csv'.format(file)) # rm seperate files after merge
 def calculate_std_for_different_seed_result(result,file):
-
+    """
+    Calculate standard derivation and save the result in csv file(for single genotype model)
+    :param result: pd.Dataframe
+    :param file: str, file name
+    :return:
+    """
     result_group_std = result.groupby(by=['weight_physic','Trainable_Params', 'l2', 'ode_int', 'lr',"hidden_size","num_layer",'x_axis',]).std().reset_index()
     result_group_std.rename(columns={'validation_rMSE':'validation_rMSE_std', 'train_rMSE':'train_rMSE_std', 'test_rMSE':'test_rMSE_std',
                                      'train_shapeDTW':'train_shapeDTW_std','validation_shapeDTW':'validation_shapeDTW_std','test_shapeDTW':'test_shapeDTW_std'},inplace=True)
@@ -474,32 +321,36 @@ def calculate_std_for_different_seed_result(result,file):
     print(result_group_std)#calculate std for each hyperparameters combination for differnt random seed
     result_group = pd.concat([result_group_mean,result_group_std[['validation_rMSE_std', 'train_rMSE_std', 'test_rMSE_std','train_shapeDTW_std','validation_shapeDTW_std','test_shapeDTW_std']]],axis=1)
     result_group = result_group.sort_values(by=['validation_rMSE'])  #
-    print(result_group)
+    # print(result_group)
     file_name = file.split('.csv')[0].split("/")[-1]
-    print(file_name)
+    # print(file_name)
     result_group.to_csv('pinn_result/result_summary/mean_result_from5_seed/single_g/{}_mean_reult.csv'.format(file_name))
     return result_group
 
 def calculate_std_for_different_seed_result_multiple_g(file):
+    """
+    Calculate standard derivation and save the result in csv file(for multiple genotype model)
+    :param file: item searched by glob.glob
+    :return:
+    """
     file_name= str(file)
-    # print(file_name)
     result = pd.read_csv('{}'.format(file_name),header=0,index_col=0)
     result = result.drop_duplicates()
-    # result.to_csv('{}'.format(file_name))
-    print(result.columns)
-    #for gpu, physics_weight is na, will replace with 0
+
+    # print(result.columns)
+    #for LSTM-NN model, physics_weight is NA or 0, convert to 0
     result.loc[:, result.isna().all()] = 0
 
     file = str(file.name).split('.csv')[0]
-    print(file)
+    # print(file)
     result_group_std = result.groupby(by=['learning_rate','hidden_size','l2','num_layer','physics_weight','y_max_bound','smooth_loss','genetics_embedding_size','last_fc_hidden_size']).std().reset_index().round(3)
     result_group_std.rename(columns={'validation_rMSE':'validation_rMSE_std', 'train_rMSE':'train_rMSE_std', 'test_rMSE':'test_rMSE_std',
                                      'train_shapeDTW':'train_shapeDTW_std','validation_shapeDTW':'validation_shapeDTW_std','test_shapeDTW':'test_shapeDTW_std'},inplace=True)
     result_group_mean = result.groupby(by=['learning_rate','hidden_size','l2','num_layer','physics_weight','y_max_bound','smooth_loss','genetics_embedding_size','last_fc_hidden_size']).mean().reset_index().round(3)
-    # print(result_group_std['validation_rMSE_std']) #calculate std for each hyperparameters combination for differnt random seed
+    #calculate std for each hyperparameters combination for differnt random seed
     result_group = pd.concat([result_group_mean,result_group_std[['validation_rMSE_std', 'train_rMSE_std', 'test_rMSE_std','train_shapeDTW_std','validation_shapeDTW_std','test_shapeDTW_std']]],axis=1)
     result_group = result_group.sort_values(by=['validation_rMSE'])  #
-    print(result_group)
+    # print(result_group)
     file_name = file.split('.csv')[0].split("/")[-1]
     # print(file_name)
     result_group.to_csv('pinn_result/result_summary/mean_result_from5_seed/multiple_g/{}_mean_reult.csv'.format(file_name))
@@ -507,24 +358,11 @@ def calculate_std_for_different_seed_result_multiple_g(file):
     df_hyper = result_group.iloc[:1,
                :][['learning_rate','hidden_size','l2','num_layer','physics_weight','y_max_bound','smooth_loss','genetics_embedding_size','last_fc_hidden_size']]
     df_best_hyperparameters_result = pd.merge(result,df_hyper,how='inner')
+    print('best hyperparameter result')
     print(df_best_hyperparameters_result)
 
     df_best_hyperparameters_result.to_csv("best_model_result_summary/{}_best_hyperparameters_result.csv".format(file_name))
     return result_group
-
-def smooth_result(model, data_df):
-    """
-    Only take the predicition from days with env input, and apply spline on it?
-    """
-def tensor_to_float(tensor_str):
-    import re
-    if isinstance(tensor_str, str) and 'tensor(' in tensor_str:
-        # Use regex to extract the numeric value before any ', grad_fn=' part
-        match = re.search(r'tensor\(([\d\.\-e]+)', tensor_str)
-        if match:
-            # Convert the extracted value to a float
-            return float(match.group(1))
-    return tensor_str  # Return None if not a valid tensor string
 
 def anova_test(test_value='test_rMSE'):
     import scipy.stats as stats
@@ -551,44 +389,47 @@ def anova_test(test_value='test_rMSE'):
     combined_group = pd.concat([test_df_ml,test_df_pinn_penalize_r,test_df_ode,test_df_rf], ignore_index=True)
     # Perform ANOVA
     grouped_data = [combined_group[combined_group['group'] == group][test_value] for group in combined_group['group'].unique()]
-    print(grouped_data)
+    # print(grouped_data)
     # ANOVA
     f_stat, p_value = stats.f_oneway(*grouped_data)
-    print(f'ANOVA F-statistic: {f_stat}, p-value: {p_value}')
+    # print(f'ANOVA F-statistic: {f_stat}, p-value: {p_value}')
     tukey = pairwise_tukeyhsd(endog=combined_group[test_value], groups=combined_group['group'], alpha=0.05)
-    print(tukey)
+    # print(tukey)
     # raise EOFError
     #two-way ANOVA
     model = ols('{} ~ C(genotype) + C(group) + C(genotype):C(group)'.format(test_value), data=combined_group).fit()
     anova_table = sm.stats.anova_lm(model, typ=2)
-    print(anova_table)
+    # print(anova_table)
     # For genotype comparison
     tukey_genotype = pairwise_tukeyhsd(endog=combined_group[test_value], groups=combined_group['genotype'], alpha=0.05)
-    print(tukey_genotype)
+    # print(tukey_genotype)
     # For group comparison
     tukey_group = pairwise_tukeyhsd(endog=combined_group[test_value], groups=combined_group['group'], alpha=0.05)
-    print(tukey_group)
+    # print(tukey_group)
 
 def plot_curve_witherror_bar_for_single_genotype_model_result(name='test',best_hyperparameters_df='pinn_penalize_r_best_hyperparameters_result.csv',if_pinn=True):
-    """plot for test, did not svave preicted curev for traina and val, thus this function doesn't work"""
+    """
+    plot predicted plant height curve against measured plant height dots
+    Create Figure 6
+    """
     from NNmodel_training import mask_rmse_loss
     #read save best df
     best_df = pd.read_csv(best_hyperparameters_df,header=0,index_col=0)
     groups_g_object = best_df.groupby(by='genotype')
-    print(len(groups_g_object))
+    # print(len(groups_g_object))
 
     for genotype in groups_g_object.groups:
         print('genotype:{}'.format(genotype))
         group_g = groups_g_object.get_group(genotype)
-        print(group_g)
+        # print(group_g)
         hidden= group_g['hidden_size'].unique()[0]
         num_layer = group_g['num_layer'].unique()[0]
         lr = group_g['lr'].unique()[0]
         weight_physic = group_g['weight_physic'].unique()[0]
         ode_int_loss = group_g['ode_int'].unique()[0]
         L2 = group_g['l2'].unique()[0]
-        print('hidden size')
-        print(hidden)
+        # print('hidden size')
+        # print(hidden)
         if if_pinn:
             #pinn
             col_name = '^predict_{}split_hidden{}_env{}_ts{}_lr_{}_w_ph{}_ode_int_{}_l2_{}_{}_rs_\d+_seq\d+$'.format(
@@ -597,7 +438,7 @@ def plot_curve_witherror_bar_for_single_genotype_model_result(name='test',best_h
 
             f=glob.glob('pinn_result/{}_predict_curve_cpu_logi_pinn_save_model__same_lengthgenotype{}penalize_rpinnmode_Truefit_ml_first_FalsecorrectedFalsesmoothFalsefill_in_naTruerescaleFalsestart_date_115.csv'.format(
                     name,genotype))
-            print(f)
+            # print(f)
             assert len(f)==1
             predict_curve_df = pd.read_csv(
                 'pinn_result/{}_predict_curve_cpu_logi_pinn_save_model__same_lengthgenotype{}penalize_rpinnmode_Truefit_ml_first_FalsecorrectedFalsesmoothFalsefill_in_naTruerescaleFalsestart_date_115.csv'.format(
@@ -627,15 +468,15 @@ def plot_curve_witherror_bar_for_single_genotype_model_result(name='test',best_h
             df_true = pd.read_csv("pinn_result/{}_true_curves_gpu_lstm_NN_save_model_same_lengthgenotype{}pinnmode_Falsefit_ml_first_FalsecorrectedFalsesmoothFalsefill_in_naTruerescaleFalsestart_date_115w0_.csv".format(
                     name, genotype)
                 , header=0, index_col=0)
-            print(col_name)
+            # print(col_name)
             c='orange'
 
         df_pred = predict_curve_df.filter(regex=col_name)
         #'print filter with col name'
-        print('predicted data frame')
-        print(df_pred)
+        # print('predicted data frame')
+        # print(df_pred)
         if df_pred.empty:
-            print(col_name)
+            # print(col_name)
             raise ValueError("The DataFrame is empty. Please provide a valid input.")
 
         df_mean = df_pred.mean(axis=1)
@@ -648,8 +489,6 @@ def plot_curve_witherror_bar_for_single_genotype_model_result(name='test',best_h
 
         fig, ax = plt.subplots(figsize=(8, 6))
         plt.ylim(0,1.5)
-        # Create a new figure for each genotype
-
 
         # Get all columns in true_df corresponding to the current genotype (including different plots)
         true_columns = df_true.columns.to_list()
@@ -659,9 +498,6 @@ def plot_curve_witherror_bar_for_single_genotype_model_result(name='test',best_h
         df_std = pd.DataFrame(data=df_std, columns=true_columns)
         # df_std.columns = true_columns
 
-        print(df_mean)
-        # print(df_true.columns)
-        # raise EOFError
         rmse = 0.0
         for i in true_columns:
             sns.scatterplot(df_true[i],ax=ax,legend=False)
@@ -674,7 +510,7 @@ def plot_curve_witherror_bar_for_single_genotype_model_result(name='test',best_h
             rmse += mask_rmse_loss(true_y=loss_seq_true, predict_y=loss_seq_pred).item()
             # print(rmse)
             pred_std = df_std[i]
-            print(df_mean[i])
+            # print(df_mean[i])
             sns.lineplot(df_mean[i], ax=ax, legend=False, color=c)  # [true_columns]
             ax.fill_between(x=list(range(170)), y1=pred_vals + pred_std, y2=pred_vals - pred_std, color=c,
                             alpha=0.3,
@@ -851,18 +687,11 @@ def boxplot_multiple_genotype():
 def order_genotype_based_on_their_similarity(first_genotype:str):
 
     kinship_pd = pd.read_csv('../temporary/kinship_matrix_astle.csv',header=0,index_col=0)
-    # kinship_pd = pd.read_csv('../processed_data/distance_encoding_matrix_full.csv', header=0,index_col=0)
-    # kinship_pd.index= kinship_pd['genotype']
-    # kinship_pd =kinship_pd.drop(columns='genotype')
+
     print(kinship_pd)
     #kinship matrix should be a square matrix with the same order
     kinship_pd.index = kinship_pd.columns
-    # g_similarity,_ = minmax_scaler(torch.tensor(kinship_pd.to_numpy()),min=-1,max=1)
-    # g_similarity = np.tanh(kinship_pd.to_numpy())
-    # kinship_pd = pd.DataFrame(data=g_similarity,index=kinship_pd.index,columns=kinship_pd.columns)
-    # print(kinship_pd.sum())
-    # kinship_pd = kinship_pd.abs() do not need this because negetive value does not mean negetive correlation,
-    # but means it has lower correlation than random
+
     print(kinship_pd)
     #descending, the larger the value the similar the two genotypes are
     similarity_row = kinship_pd.sort_values(by=first_genotype,ascending=False)
@@ -876,6 +705,7 @@ def order_genotype_based_on_their_similarity(first_genotype:str):
     ordered_genotype_list = list(similarity_row.index)
     # raise EOFError
     return ordered_genotype_list,similarity_row[first_genotype].to_list()
+
 def average_and_plot_result_single_g(name='gpu_cv_final'):
 
     files = glob.glob("pinn_result/result_summary/*{}_same_length*rescaleTrue*115*.csv".format(name))
@@ -884,16 +714,15 @@ def average_and_plot_result_single_g(name='gpu_cv_final'):
     files = [str(x).split('\\')[1] for x in files]
     for file in files:
         print(file)
-        plot_PINN_result("pinn_result/result_summary/{}".format(file))
+        calculate_average_result_from_saved_model_prediction_result("pinn_result/result_summary/{}".format(file))
     plot_mean_error_bar_multiple_genotype(file_name='ml',
                                           name='PINN_mask_loss_{}'.format(name),
                                           result_file_dir='pinn_result/result_summary/')
 def single_g_cv_result_for_significant_test():
     """
-    test if PINN significantly perform better than LSTM use paired t test
+    Comparision between logi-PINN and LSTM-NN with different data split. plot test RMSE comparision as boxplot and save
+    Create result for Table 2, Appendix Table A.4.1 and Figure A.4.1
     """
-    # df_ml = pd.read_csv("pinn_result/result_summary/best_model_cv/PINN_mask_loss_ml__cv.csv", header=0, index_col=0)
-    # df_ml = df_ml.drop_duplicates()
 
     df_ml = pd.DataFrame()
     file_paths = [Path(path) for path in
@@ -948,9 +777,6 @@ def single_g_cv_result_for_significant_test():
 
     df_cv_merge['model'] = 'logi-PINN'
     df_ml['model'] = 'LSTM-NN'
-    # print(df_cv_merge)
-    # print(df_ml)
-    from scipy.stats import ttest_rel, wilcoxon, shapiro
 
     custom_palette = {
         'LSTM-NN': 'orange', 'logi-PINN': 'red'
@@ -967,7 +793,8 @@ def single_g_cv_result_for_significant_test():
 
 def only_plot_test_box_plot_single_g():
     """
-    make box plot comparision for test rmse result with 5 different models
+    make scatter plot comparision for test rmse result with 5 different models
+    create Figure 7 for paper
     """
     #PINN
     files = glob.glob("pinn_result/result_summary/single_g/PINN_mask_loss_cpu_logi_pinn_save_model__same_lengthgenotype*penalize_rpinnmode_Truefit_ml_first_FalsecorrectedFalsesmoothFalsefill_in_naTruerescaleFalsestart_date_115.csv")
@@ -975,7 +802,7 @@ def only_plot_test_box_plot_single_g():
     files = [str(x).split('\\')[-1] for x in files]
     for file in files:
         print(file)
-        plot_PINN_result("pinn_result/result_summary/single_g/{}".format(file))
+        calculate_average_result_from_saved_model_prediction_result("pinn_result/result_summary/single_g/{}".format(file))
 
     pinn_df, order_g =plot_mean_error_bar_multiple_genotype(file_name='pinn_penalize_r', name='PINN_mask_loss_cpu_logi_pinn_save_model__same_length',
                                           result_file_dir='pinn_result/result_summary/single_g/')
@@ -992,7 +819,7 @@ def only_plot_test_box_plot_single_g():
     files = [str(x).split('\\')[-1] for x in files]
     for file in files:
         print(file)
-        plot_PINN_result("pinn_result/result_summary/single_g/{}".format(file))
+        calculate_average_result_from_saved_model_prediction_result("pinn_result/result_summary/single_g/{}".format(file))
     lstm_df, order_g =plot_mean_error_bar_multiple_genotype(file_name='ml', name='PINN_mask_loss_gpu_lstm_NN_save_model_same_length',
                                           result_file_dir='pinn_result/result_summary/single_g/')
     lstm_df = lstm_df[lstm_df['metric'] == 'test_rMSE']
@@ -1127,7 +954,7 @@ def only_plot_test_box_plot_single_g():
     # plt.show()
 def plot_the_first_layer_weight_lstm(filename='gpu_lstm_corr_same_length',order_g=None):
     """
-    heatmap, generate by AI and modified by me.
+    heatmap for LSTM gate at the first layer, Figure A.7.1
     remark: you can copy paste unicode subscript as comment or print
     """
     from NNmodel_training import LSTM_ts_and_temperature_predict_height
@@ -1219,8 +1046,13 @@ def plot_the_first_layer_weight_lstm(filename='gpu_lstm_corr_same_length',order_
         plt.ylabel("Genotype")
         plt.tight_layout()
         plt.savefig('weight_heatmap.png',dpi=2000)
-        # plt.show()
+
 def process_multiple_g_result():
+    """
+    Process multiple genotype result
+    Create result for Table 3 and Figure 8
+    :return:
+    """
     #LSTM-NN multiple g
     file_paths = [Path(path) for path in glob.glob(
         "pinn_result/result_summary/multiple_g/*multiple_g_result_*rerun_final*smooth_temp_False*.csv")]
@@ -1247,7 +1079,7 @@ def main():
     global n_split_year_map
     plt.rcParams["font.family"] = "Times New Roman"
     #multiple genotype
-    # process_multiple_g_result()
+    process_multiple_g_result()
 
     #single genotype
     n_split_year_map = pd.read_csv("../temporary/n_split_map_df.csv",header=0,sep=',')
